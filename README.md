@@ -17,7 +17,7 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 
 ## Prerequisites
 
-- Ruby >= 2.7.0
+- Ruby >= 3.2.0
 - [Borg Backup](https://www.borgbackup.org/) installed and available in PATH
 - [Passbolt CLI](https://github.com/passbolt/go-passbolt-cli) (optional, for password management)
 
