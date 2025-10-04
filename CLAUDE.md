@@ -1,0 +1,1 @@
+- ruborg is a ruby gem to perform backups using borg. it reads a configuration file in yaml and instructs borg about what to do. it is a friendly fornt end of borg in ruby. it can create and access backup repositories. it can take and recall backup files or directories. it can interract with passbolt through cli to access encryption passwords.

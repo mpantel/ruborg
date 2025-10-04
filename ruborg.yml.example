@@ -1,0 +1,28 @@
+# Ruborg configuration example
+
+# Repository path
+repository: /path/to/borg/repository
+
+# Paths to backup
+backup_paths:
+  - /home/user/documents
+  - /home/user/projects
+  - /etc
+
+# Exclude patterns
+exclude_patterns:
+  - "*.tmp"
+  - "*.log"
+  - "*/.cache/*"
+  - "*/node_modules/*"
+  - "*/.git/*"
+
+# Compression algorithm (lz4, zstd, zlib, lzma, none)
+compression: lz4
+
+# Encryption mode (repokey, keyfile, none)
+encryption: repokey
+
+# Passbolt integration (optional)
+passbolt:
+  resource_id: "your-passbolt-resource-uuid"
