@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-10-05
+
+### Added
+- Auto-initialization feature: Set `auto_init: true` in config to automatically initialize repositories on first use
+- Multi-repository configuration support with per-repository sources
+- `--repository` / `-r` option to target specific repository in multi-repo configs
+- `--all` option to backup all repositories at once
+- Repository-specific Passbolt integration (overrides global settings)
+- Per-source exclude patterns in multi-repo configs
+- BackupConfig wrapper class for multi-repo compatibility
+- Automatic format detection (single vs multi-repo)
+- Support for multiple backup sources per repository
+- Global settings with per-repository overrides
+- `log_file` configuration option to set log path in config file
+- Log file priority: CLI option > config file > default
+
+### Changed
+- Config class now detects and handles both single-repo and multi-repo formats
+- Backup command automatically routes to single or multi-repo implementation
+- Archive naming includes repository name for multi-repo configs
+- CLI now reads log_file from config if --log option not provided
+
 ## [0.2.0] - 2025-10-05
 
 ### Added

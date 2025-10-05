@@ -15,6 +15,8 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 🗂️ **Selective Restore** - Restore individual files or directories from archives
 - 🧹 **Auto-cleanup** - Optionally remove source files after successful backup
 - 📊 **Logging** - Comprehensive logging with daily rotation
+- 🗄️ **Multi-Repository** - Manage multiple backup repositories with different sources
+- 🔄 **Auto-initialization** - Automatically initialize repositories on first use
 - ✅ **Well-tested** - Comprehensive test suite with RSpec
 
 ## Prerequisites
@@ -63,7 +65,9 @@ gem install ruborg
 
 ## Configuration
 
-Create a `ruborg.yml` configuration file:
+Ruborg supports two configuration formats: **single repository** (legacy) and **multi-repository** (recommended for complex setups).
+
+### Single Repository Configuration
 
 ```yaml
 # Repository path
@@ -73,15 +77,11 @@ repository: /path/to/borg/repository
 backup_paths:
   - /home/user/documents
   - /home/user/projects
-  - /etc
 
 # Exclude patterns
 exclude_patterns:
   - "*.tmp"
   - "*.log"
-  - "*/.cache/*"
-  - "*/node_modules/*"
-  - "*/.git/*"
 
 # Compression algorithm (lz4, zstd, zlib, lzma, none)
 compression: lz4
@@ -92,9 +92,62 @@ encryption: repokey
 # Passbolt integration (optional)
 passbolt:
   resource_id: "your-passbolt-resource-uuid"
+
+# Auto-initialize repository (optional, default: false)
+auto_init: true
+
+# Log file path (optional, default: ~/.ruborg/logs/ruborg.log)
+log_file: /var/log/ruborg.log
 ```
 
-See `ruborg.yml.example` for a complete configuration template.
+### Multi-Repository Configuration
+
+For managing multiple repositories with different sources:
+
+```yaml
+# Global settings (applied to all repositories unless overridden)
+compression: lz4
+encryption: repokey
+auto_init: true
+passbolt:
+  resource_id: "global-passbolt-id"
+
+# Multiple repositories
+repositories:
+  - name: documents
+    path: /mnt/backup/documents
+    sources:
+      - name: home-docs
+        paths:
+          - /home/user/documents
+        exclude:
+          - "*.tmp"
+      - name: work-docs
+        paths:
+          - /home/user/work
+        exclude:
+          - "*.log"
+
+  - name: databases
+    path: /mnt/backup/databases
+    # Repository-specific passbolt (overrides global)
+    passbolt:
+      resource_id: "db-specific-passbolt-id"
+    sources:
+      - name: mysql
+        paths:
+          - /var/lib/mysql/dumps
+      - name: postgres
+        paths:
+          - /var/lib/postgresql/dumps
+```
+
+**Multi-repo benefits:**
+- Organize backups by type (documents, databases, media)
+- Different encryption keys per repository
+- Multiple sources per repository
+- Per-source exclude patterns
+- Repository-specific settings override global ones
 
 ## Usage
 
@@ -110,6 +163,7 @@ ruborg init /path/to/repository --passbolt-id "resource-uuid"
 
 ### Create a Backup
 
+**Single repository:**
 ```bash
 # Using default configuration (ruborg.yml)
 ruborg backup
@@ -122,6 +176,18 @@ ruborg backup --name "my-backup-2025-10-04"
 
 # Remove source files after successful backup
 ruborg backup --remove-source
+```
+
+**Multi-repository:**
+```bash
+# Backup specific repository
+ruborg backup --repository documents
+
+# Backup all repositories
+ruborg backup --all
+
+# Backup specific repository with custom name
+ruborg backup --repository databases --name "db-backup-2025-10-05"
 ```
 
 ### List Archives
@@ -151,13 +217,23 @@ ruborg info
 
 ## Logging
 
-Ruborg automatically logs all operations to `~/.ruborg/logs/ruborg.log` with daily rotation. You can specify a custom log file:
+Ruborg automatically logs all operations with daily rotation. Log file location priority:
+
+1. **CLI option** (highest priority): `--log /path/to/custom.log`
+2. **Config file**: `log_file: /path/to/log.log`
+3. **Default**: `~/.ruborg/logs/ruborg.log`
+
+**Examples:**
 
 ```bash
-ruborg backup --log /path/to/custom.log
+# Use CLI option (overrides config)
+ruborg backup --log /var/log/ruborg.log
+
+# Or set in config file
+log_file: /var/log/ruborg.log
 ```
 
-Logs include:
+**Logs include:**
 - Operation start/completion timestamps
 - Paths being backed up
 - Archive names created
@@ -191,20 +267,41 @@ passbolt:
 
 Ruborg will automatically retrieve the passphrase when performing backup operations.
 
+## Auto-initialization
+
+Set `auto_init: true` in your configuration file to automatically initialize the repository on first use:
+
+```yaml
+repository: /path/to/borg/repository
+auto_init: true
+passbolt:
+  resource_id: "your-passbolt-resource-uuid"
+backup_paths:
+  - /path/to/backup
+```
+
+When enabled, ruborg will automatically run `borg init` if the repository doesn't exist when you run `backup`, `list`, or `info` commands. The passphrase will be retrieved from Passbolt if configured.
+
 ## Command Reference
 
 | Command | Description | Options |
 |---------|-------------|---------|
 | `init REPOSITORY` | Initialize a new Borg repository | `--passphrase`, `--passbolt-id`, `--log` |
-| `backup` | Create a backup using config file | `--config`, `--name`, `--remove-source`, `--log` |
-| `list` | List all archives in repository | `--config`, `--log` |
-| `restore ARCHIVE` | Restore files from archive | `--config`, `--destination`, `--path`, `--log` |
-| `info` | Show repository information | `--config`, `--log` |
+| `backup` | Create a backup using config file | `--config`, `--name`, `--remove-source`, `--repository`, `--all`, `--log` |
+| `list` | List all archives in repository | `--config`, `--repository`, `--log` |
+| `restore ARCHIVE` | Restore files from archive | `--config`, `--destination`, `--path`, `--repository`, `--log` |
+| `info` | Show repository information | `--config`, `--repository`, `--log` |
 
 ### Global Options
 
 - `--config`: Path to configuration file (default: `ruborg.yml`)
-- `--log`: Path to log file (default: `~/.ruborg/logs/ruborg.log`)
+- `--log`: Path to log file (overrides config, default: `~/.ruborg/logs/ruborg.log`)
+- `--repository` / `-r`: Repository name (required for multi-repo configs)
+
+### Multi-Repository Options
+
+- `--all`: Backup all repositories (multi-repo config only)
+- `--repository NAME`: Target specific repository by name
 
 ## Development
 

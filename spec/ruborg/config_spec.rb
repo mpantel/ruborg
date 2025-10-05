@@ -138,4 +138,51 @@ RSpec.describe Ruborg::Config do
       expect(config.passbolt_integration).to eq({})
     end
   end
+
+  describe "#auto_init?" do
+    it "returns true when auto_init is enabled" do
+      config_data = { "auto_init" => true }
+      config_path = create_test_config(config_data)
+
+      config = described_class.new(config_path)
+
+      expect(config.auto_init?).to be true
+    end
+
+    it "returns false when auto_init is disabled" do
+      config_data = { "auto_init" => false }
+      config_path = create_test_config(config_data)
+
+      config = described_class.new(config_path)
+
+      expect(config.auto_init?).to be false
+    end
+
+    it "returns false by default when not specified" do
+      config_path = create_test_config({})
+
+      config = described_class.new(config_path)
+
+      expect(config.auto_init?).to be false
+    end
+  end
+
+  describe "#log_file" do
+    it "returns the log file path when specified" do
+      config_data = { "log_file" => "/custom/path/ruborg.log" }
+      config_path = create_test_config(config_data)
+
+      config = described_class.new(config_path)
+
+      expect(config.log_file).to eq("/custom/path/ruborg.log")
+    end
+
+    it "returns nil when not specified" do
+      config_path = create_test_config({})
+
+      config = described_class.new(config_path)
+
+      expect(config.log_file).to be_nil
+    end
+  end
 end

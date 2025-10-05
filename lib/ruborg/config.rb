@@ -11,6 +11,7 @@ module Ruborg
     def initialize(config_path)
       @config_path = config_path
       load_config
+      detect_format
     end
 
     def load_config
@@ -21,6 +22,7 @@ module Ruborg
       raise ConfigError, "Invalid YAML syntax: #{e.message}"
     end
 
+    # Legacy single-repo accessors (for backward compatibility)
     def repository
       @data["repository"]
     end
@@ -43,6 +45,44 @@ module Ruborg
 
     def passbolt_integration
       @data["passbolt"] || {}
+    end
+
+    def auto_init?
+      @data["auto_init"] || false
+    end
+
+    def log_file
+      @data["log_file"]
+    end
+
+    # New multi-repo support
+    def multi_repo?
+      @multi_repo
+    end
+
+    def repositories
+      return [] unless multi_repo?
+      @data["repositories"] || []
+    end
+
+    def get_repository(name)
+      return nil unless multi_repo?
+      repositories.find { |r| r["name"] == name }
+    end
+
+    def repository_names
+      return [] unless multi_repo?
+      repositories.map { |r| r["name"] }
+    end
+
+    def global_settings
+      @data.slice("passbolt", "compression", "encryption", "auto_init")
+    end
+
+    private
+
+    def detect_format
+      @multi_repo = @data.key?("repositories")
     end
   end
 end
