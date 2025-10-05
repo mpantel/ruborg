@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "ruborg/version"
+require_relative "ruborg/logger"
 require_relative "ruborg/config"
 require_relative "ruborg/repository"
 require_relative "ruborg/backup"

@@ -40,8 +40,11 @@ module Ruborg
     def execute_borg_command(cmd)
       env = {}
       env["BORG_PASSPHRASE"] = @passphrase if @passphrase
+      env["BORG_RELOCATED_REPO_ACCESS_IS_OK"] = "yes"
+      env["BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK"] = "yes"
 
-      result = system(env, *cmd)
+      # Redirect stdin from /dev/null to prevent interactive prompts
+      result = system(env, *cmd, in: "/dev/null")
       raise BorgError, "Borg command failed: #{cmd.join(' ')}" unless result
 
       result

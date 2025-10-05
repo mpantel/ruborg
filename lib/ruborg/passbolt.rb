@@ -13,10 +13,10 @@ module Ruborg
     def get_password
       raise PassboltError, "Resource ID not configured" unless @resource_id
 
-      cmd = ["passbolt", "get", @resource_id, "--json"]
-      output = `#{cmd.join(' ')}`
+      cmd = ["passbolt", "get", "resource", @resource_id, "--json"]
+      output, status = execute_command(cmd)
 
-      raise PassboltError, "Failed to retrieve password from Passbolt" unless $?.success?
+      raise PassboltError, "Failed to retrieve password from Passbolt" unless status
 
       parse_password(output)
     end
@@ -27,6 +27,11 @@ module Ruborg
       unless system("which passbolt > /dev/null 2>&1")
         raise PassboltError, "Passbolt CLI not found. Please install it first."
       end
+    end
+
+    def execute_command(cmd)
+      output = `#{cmd.join(' ')}`
+      [output, $?.success?]
     end
 
     def parse_password(json_output)

@@ -1,7 +1,5 @@
 # Ruborg
 
-> **⚠️ WARNING: This project is under heavy development and is not yet functional. Do not use in production.**
->
 > This gem is being developed with the assistance of Claude AI.
 
 A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg simplifies backup management by providing a YAML-based configuration system and seamless integration with Passbolt for encryption password management.
@@ -14,12 +12,34 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 🔐 **Passbolt Integration** - Secure password management via Passbolt CLI
 - 🎯 **Pattern Exclusions** - Flexible file exclusion patterns
 - 🗜️ **Compression Options** - Support for multiple compression algorithms
+- 🗂️ **Selective Restore** - Restore individual files or directories from archives
+- 🧹 **Auto-cleanup** - Optionally remove source files after successful backup
+- 📊 **Logging** - Comprehensive logging with daily rotation
+- ✅ **Well-tested** - Comprehensive test suite with RSpec
 
 ## Prerequisites
 
 - Ruby >= 3.2.0
 - [Borg Backup](https://www.borgbackup.org/) installed and available in PATH
 - [Passbolt CLI](https://github.com/passbolt/go-passbolt-cli) (optional, for password management)
+
+### Installing Borg Backup
+
+**macOS:**
+```bash
+brew install borgbackup
+```
+
+**Ubuntu/Debian:**
+```bash
+sudo apt update
+sudo apt install borgbackup
+```
+
+**Verify installation:**
+```bash
+borg --version
+```
 
 ## Installation
 
@@ -99,6 +119,9 @@ ruborg backup --config /path/to/config.yml
 
 # With custom archive name
 ruborg backup --name "my-backup-2025-10-04"
+
+# Remove source files after successful backup
+ruborg backup --remove-source
 ```
 
 ### List Archives
@@ -110,11 +133,14 @@ ruborg list
 ### Restore from Archive
 
 ```bash
-# Restore to current directory
+# Restore entire archive to current directory
 ruborg restore archive-name
 
 # Restore to specific directory
 ruborg restore archive-name --destination /path/to/restore
+
+# Restore a single file from archive
+ruborg restore archive-name --path /path/to/file.txt --destination /new/location
 ```
 
 ### View Repository Information
@@ -123,13 +149,40 @@ ruborg restore archive-name --destination /path/to/restore
 ruborg info
 ```
 
+## Logging
+
+Ruborg automatically logs all operations to `~/.ruborg/logs/ruborg.log` with daily rotation. You can specify a custom log file:
+
+```bash
+ruborg backup --log /path/to/custom.log
+```
+
+Logs include:
+- Operation start/completion timestamps
+- Paths being backed up
+- Archive names created
+- Success and error messages
+- Source file removal actions
+
 ## Passbolt Integration
 
 Ruborg can retrieve encryption passphrases from Passbolt using the Passbolt CLI:
 
 1. Install and configure [Passbolt CLI](https://github.com/passbolt/go-passbolt-cli)
-2. Store your Borg repository passphrase in Passbolt
-3. Add the resource ID to your `ruborg.yml`:
+2. Configure Passbolt CLI with your server credentials:
+   ```bash
+   passbolt configure --serverAddress https://server.address \
+                      --userPrivateKeyFile /path/to/private.key \
+                      --userPassword YOUR_PASSWORD
+   ```
+   Or set environment variables:
+   ```bash
+   export PASSBOLT_SERVER_ADDRESS=https://server.address
+   export PASSBOLT_USER_PRIVATE_KEY_FILE=/path/to/private.key
+   export PASSBOLT_USER_PASSWORD=YOUR_PASSWORD
+   ```
+3. Store your Borg repository passphrase in Passbolt
+4. Add the resource ID to your `ruborg.yml`:
 
 ```yaml
 passbolt:
@@ -142,11 +195,16 @@ Ruborg will automatically retrieve the passphrase when performing backup operati
 
 | Command | Description | Options |
 |---------|-------------|---------|
-| `init REPOSITORY` | Initialize a new Borg repository | `--passphrase`, `--passbolt-id` |
-| `backup` | Create a backup using config file | `--config`, `--name` |
-| `list` | List all archives in repository | `--config` |
-| `restore ARCHIVE` | Restore files from archive | `--config`, `--destination` |
-| `info` | Show repository information | `--config` |
+| `init REPOSITORY` | Initialize a new Borg repository | `--passphrase`, `--passbolt-id`, `--log` |
+| `backup` | Create a backup using config file | `--config`, `--name`, `--remove-source`, `--log` |
+| `list` | List all archives in repository | `--config`, `--log` |
+| `restore ARCHIVE` | Restore files from archive | `--config`, `--destination`, `--path`, `--log` |
+| `info` | Show repository information | `--config`, `--log` |
+
+### Global Options
+
+- `--config`: Path to configuration file (default: `ruborg.yml`)
+- `--log`: Path to log file (default: `~/.ruborg/logs/ruborg.log`)
 
 ## Development
 
@@ -169,8 +227,23 @@ bundle exec rake release
 Run the test suite:
 
 ```bash
+# Run all tests
 bundle exec rspec
+
+# Run only unit tests (no Borg required)
+bundle exec rspec --tag ~borg
+
+# Run only integration tests (requires Borg)
+bundle exec rspec --tag borg
 ```
+
+The test suite includes:
+- Config loading and validation
+- Repository management (with actual Borg integration)
+- Backup and restore operations
+- Passbolt integration (mocked)
+- CLI commands
+- Logging functionality
 
 ## Contributing
 
