@@ -17,10 +17,14 @@ module Ruborg
         # Try to load config to get log_file setting
         config_path = options[:config] || "ruborg.yml"
         if File.exist?(config_path)
-          config_data = YAML.load_file(config_path) rescue {}
+          config_data = YAML.safe_load_file(config_path, permitted_classes: [Symbol], aliases: true) rescue {}
           log_path = config_data["log_file"]
         end
       end
+
+      # Validate log path if provided
+      log_path = validate_log_path(log_path) if log_path
+
       @logger = RuborgLogger.new(log_file: log_path)
     end
 
@@ -63,7 +67,7 @@ module Ruborg
       config = Config.new(options[:config])
       passphrase = fetch_passphrase_from_config(config)
 
-      repo = Repository.new(config.repository, passphrase: passphrase)
+      repo = Repository.new(config.repository, passphrase: passphrase, borg_options: config.borg_options)
 
       # Auto-initialize repository if configured
       if config.auto_init? && !repo.exists?
@@ -88,7 +92,7 @@ module Ruborg
       config = Config.new(options[:config])
       passphrase = fetch_passphrase_from_config(config)
 
-      repo = Repository.new(config.repository, passphrase: passphrase)
+      repo = Repository.new(config.repository, passphrase: passphrase, borg_options: config.borg_options)
       backup = Backup.new(repo, config: config)
 
       backup.extract(archive_name, destination: options[:destination], path: options[:path])
@@ -110,7 +114,7 @@ module Ruborg
       config = Config.new(options[:config])
       passphrase = fetch_passphrase_from_config(config)
 
-      repo = Repository.new(config.repository, passphrase: passphrase)
+      repo = Repository.new(config.repository, passphrase: passphrase, borg_options: config.borg_options)
 
       # Auto-initialize repository if configured
       if config.auto_init? && !repo.exists?
@@ -147,12 +151,37 @@ module Ruborg
       exit 1
     end
 
+    def validate_log_path(log_path)
+      # Expand to absolute path
+      normalized_path = File.expand_path(log_path)
+
+      # Prevent writing to sensitive system directories
+      forbidden_paths = ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/etc", "/sys", "/proc", "/boot"]
+      forbidden_paths.each do |forbidden|
+        if normalized_path.start_with?("#{forbidden}/")
+          raise ConfigError, "Invalid log path: refusing to write to system directory #{normalized_path}"
+        end
+      end
+
+      # Ensure parent directory exists or can be created
+      log_dir = File.dirname(normalized_path)
+      unless File.directory?(log_dir)
+        begin
+          FileUtils.mkdir_p(log_dir)
+        rescue => e
+          raise ConfigError, "Cannot create log directory #{log_dir}: #{e.message}"
+        end
+      end
+
+      normalized_path
+    end
+
     # Single repository backup (legacy)
     def backup_single_repo(config)
       @logger.info("Backing up paths: #{config.backup_paths.join(', ')}")
       passphrase = fetch_passphrase_from_config(config)
 
-      repo = Repository.new(config.repository, passphrase: passphrase)
+      repo = Repository.new(config.repository, passphrase: passphrase, borg_options: config.borg_options)
 
       # Auto-initialize repository if configured
       if config.auto_init? && !repo.exists?
@@ -163,9 +192,9 @@ module Ruborg
 
       backup = Backup.new(repo, config: config)
 
-      archive_name = options[:name] || Time.now.strftime("%Y-%m-%d_%H-%M-%S")
+      archive_name = options[:name] ? sanitize_archive_name(options[:name]) : Time.now.strftime("%Y-%m-%d_%H-%M-%S")
       @logger.info("Creating archive: #{archive_name}")
-      backup.create(name: options[:name], remove_source: options[:remove_source])
+      backup.create(name: archive_name, remove_source: options[:remove_source])
       @logger.info("Backup created successfully: #{archive_name}")
 
       if options[:remove_source]
@@ -203,7 +232,8 @@ module Ruborg
       merged_config = global_settings.merge(repo_config)
 
       passphrase = fetch_passphrase_for_repo(merged_config)
-      repo = Repository.new(repo_config["path"], passphrase: passphrase)
+      borg_opts = merged_config["borg_options"] || {}
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts)
 
       # Auto-initialize if configured
       auto_init = merged_config["auto_init"] || false
@@ -217,7 +247,7 @@ module Ruborg
       backup_config = BackupConfig.new(repo_config, merged_config)
       backup = Backup.new(repo, config: backup_config)
 
-      archive_name = options[:name] || "#{repo_name}-#{Time.now.strftime('%Y-%m-%d_%H-%M-%S')}"
+      archive_name = options[:name] ? sanitize_archive_name(options[:name]) : "#{repo_name}-#{Time.now.strftime('%Y-%m-%d_%H-%M-%S')}"
       @logger.info("Creating archive: #{archive_name}")
 
       sources = repo_config["sources"] || []
@@ -235,6 +265,20 @@ module Ruborg
       return nil if passbolt_config.nil? || passbolt_config.empty?
 
       Passbolt.new(resource_id: passbolt_config["resource_id"]).get_password
+    end
+
+    def sanitize_archive_name(name)
+      raise ConfigError, "Archive name cannot be empty" if name.nil? || name.strip.empty?
+
+      # Check if name contains at least one valid character before sanitization
+      unless name =~ /[a-zA-Z0-9._-]/
+        raise ConfigError, "Invalid archive name: must contain at least one valid character (alphanumeric, dot, dash, or underscore)"
+      end
+
+      # Allow only alphanumeric, dash, underscore, and dot
+      sanitized = name.gsub(/[^a-zA-Z0-9._-]/, '_')
+
+      sanitized
     end
 
     # Wrapper class to adapt multi-repo config to existing Backup class

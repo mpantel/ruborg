@@ -10,7 +10,7 @@ module Ruborg
 
     def initialize(log_file: nil)
       @log_file = log_file || default_log_file
-      ensure_log_directory
+      validate_and_ensure_log_directory
       @logger = Logger.new(@log_file, "daily")
       @logger.level = Logger::INFO
       @logger.formatter = proc do |severity, datetime, progname, msg|
@@ -45,8 +45,21 @@ module Ruborg
       dir
     end
 
-    def ensure_log_directory
-      FileUtils.mkdir_p(File.dirname(@log_file)) unless File.directory?(File.dirname(@log_file))
+    def validate_and_ensure_log_directory
+      # Validate log file path for security
+      normalized_path = File.expand_path(@log_file)
+
+      # Prevent writing to sensitive system directories
+      forbidden_paths = ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/etc", "/sys", "/proc", "/boot"]
+      forbidden_paths.each do |forbidden|
+        if normalized_path.start_with?("#{forbidden}/")
+          raise ConfigError, "Invalid log path: refusing to write to system directory #{normalized_path}"
+        end
+      end
+
+      # Ensure log directory exists
+      log_dir = File.dirname(normalized_path)
+      FileUtils.mkdir_p(log_dir) unless File.directory?(log_dir)
     end
   end
 end

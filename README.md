@@ -18,6 +18,7 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 🗄️ **Multi-Repository** - Manage multiple backup repositories with different sources
 - 🔄 **Auto-initialization** - Automatically initialize repositories on first use
 - ✅ **Well-tested** - Comprehensive test suite with RSpec
+- 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites
 
@@ -98,6 +99,11 @@ auto_init: true
 
 # Log file path (optional, default: ~/.ruborg/logs/ruborg.log)
 log_file: /var/log/ruborg.log
+
+# Borg environment options (optional)
+borg_options:
+  allow_relocated_repo: true  # Allow relocated repositories (default: true)
+  allow_unencrypted_repo: true  # Allow unencrypted repositories (default: true)
 ```
 
 ### Multi-Repository Configuration
@@ -111,6 +117,9 @@ encryption: repokey
 auto_init: true
 passbolt:
   resource_id: "global-passbolt-id"
+borg_options:
+  allow_relocated_repo: false
+  allow_unencrypted_repo: false
 
 # Multiple repositories
 repositories:
@@ -282,6 +291,33 @@ backup_paths:
 
 When enabled, ruborg will automatically run `borg init` if the repository doesn't exist when you run `backup`, `list`, or `info` commands. The passphrase will be retrieved from Passbolt if configured.
 
+## Security Configuration
+
+Ruborg provides configurable security options via `borg_options`:
+
+```yaml
+borg_options:
+  # Control whether to allow access to relocated repositories
+  # Set to false in production for enhanced security
+  allow_relocated_repo: true  # default: true
+
+  # Control whether to allow access to unencrypted repositories
+  # Set to false to enforce encryption
+  allow_unencrypted_repo: true  # default: true
+```
+
+**Security Features:**
+- **Repository Path Validation**: Prevents creation in system directories (`/bin`, `/etc`, `/usr`, etc.)
+- **Backup Path Validation**: Validates and normalizes all backup source paths
+- **Archive Name Sanitization**: Automatically sanitizes custom archive names
+- **Path Traversal Protection**: Prevents extraction to system directories
+- **Symlink Protection**: Resolves and validates symlinks before deletion with `--remove-source`
+- **Safe YAML Loading**: Uses `YAML.safe_load_file` to prevent code execution
+- **Command Injection Protection**: Uses safe command execution methods
+- **Log Path Validation**: Prevents writing logs to system directories
+
+See [SECURITY.md](SECURITY.md) for detailed security information and best practices.
+
 ## Command Reference
 
 | Command | Description | Options |
@@ -341,6 +377,7 @@ The test suite includes:
 - Passbolt integration (mocked)
 - CLI commands
 - Logging functionality
+- Comprehensive security tests (path validation, sanitization, etc.)
 
 ## Contributing
 

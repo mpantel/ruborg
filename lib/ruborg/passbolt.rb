@@ -30,8 +30,9 @@ module Ruborg
     end
 
     def execute_command(cmd)
-      output = `#{cmd.join(' ')}`
-      [output, $?.success?]
+      require "open3"
+      stdout, stderr, status = Open3.capture3(*cmd)
+      [stdout, status.success?]
     end
 
     def parse_password(json_output)

@@ -28,8 +28,12 @@ module Ruborg
       # Change to destination directory if specified
       if destination != "."
         require "fileutils"
-        FileUtils.mkdir_p(destination) unless File.directory?(destination)
-        Dir.chdir(destination) do
+
+        # Validate and normalize destination path
+        validated_dest = validate_destination_path(destination)
+        FileUtils.mkdir_p(validated_dest) unless File.directory?(validated_dest)
+
+        Dir.chdir(validated_dest) do
           execute_borg_command(cmd)
         end
       else
@@ -57,7 +61,10 @@ module Ruborg
       end
 
       cmd << "#{@repository.path}::#{archive_name}"
-      cmd += @config.backup_paths
+
+      # Validate and normalize backup paths
+      validated_paths = validate_backup_paths(@config.backup_paths)
+      cmd += validated_paths
 
       cmd
     end
@@ -79,11 +86,53 @@ module Ruborg
       require "fileutils"
 
       @config.backup_paths.each do |path|
-        if File.directory?(path)
-          FileUtils.rm_rf(path)
-        elsif File.file?(path)
-          FileUtils.rm(path)
+        # Resolve symlinks and validate path
+        begin
+          real_path = File.realpath(path)
+        rescue Errno::ENOENT
+          # Path doesn't exist, skip
+          next
         end
+
+        # Security check: ensure path hasn't been tampered with
+        unless File.exist?(real_path)
+          next
+        end
+
+        # Additional safety: don't delete root or system directories
+        if real_path == "/" || real_path.start_with?("/bin", "/sbin", "/usr", "/etc", "/sys", "/proc")
+          raise BorgError, "Refusing to delete system path: #{real_path}"
+        end
+
+        if File.directory?(real_path)
+          FileUtils.rm_rf(real_path, secure: true)
+        elsif File.file?(real_path)
+          FileUtils.rm(real_path)
+        end
+      end
+    end
+
+    def validate_destination_path(destination)
+      # Expand and normalize the path
+      normalized_path = File.expand_path(destination)
+
+      # Security check: prevent path traversal to sensitive directories
+      forbidden_paths = ["/", "/bin", "/sbin", "/usr", "/etc", "/sys", "/proc", "/boot"]
+      forbidden_paths.each do |forbidden|
+        if normalized_path == forbidden || normalized_path.start_with?("#{forbidden}/")
+          raise BorgError, "Invalid destination: refusing to extract to system directory #{normalized_path}"
+        end
+      end
+
+      normalized_path
+    end
+
+    def validate_backup_paths(paths)
+      raise BorgError, "No backup paths specified" if paths.nil? || paths.empty?
+
+      paths.map do |path|
+        raise BorgError, "Empty backup path specified" if path.nil? || path.to_s.strip.empty?
+        File.expand_path(path)
       end
     end
   end

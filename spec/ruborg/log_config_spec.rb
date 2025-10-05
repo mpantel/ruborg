@@ -49,9 +49,9 @@ RSpec.describe "Log file configuration" do
       FileUtils.mkdir_p(File.join(tmpdir, "source"))
       File.write(File.join(tmpdir, "source", "test.txt"), "content")
 
-      # Create repo
+      # Create repo only if it doesn't exist
       repo = Ruborg::Repository.new(config_data["repository"], passphrase: "test")
-      repo.create
+      repo.create unless repo.exists?
 
       # Update config with passbolt mock
       config_with_passbolt = config_data.merge("passbolt" => { "resource_id" => "test-id" })

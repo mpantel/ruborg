@@ -5,9 +5,10 @@ module Ruborg
   class Repository
     attr_reader :path
 
-    def initialize(path, passphrase: nil)
-      @path = path
+    def initialize(path, passphrase: nil, borg_options: {})
+      @path = validate_repo_path(path)
       @passphrase = passphrase
+      @borg_options = borg_options
     end
 
     def exists?
@@ -37,11 +38,32 @@ module Ruborg
 
     private
 
+    def validate_repo_path(path)
+      raise BorgError, "Repository path cannot be empty" if path.nil? || path.empty?
+
+      normalized = File.expand_path(path)
+
+      # Prevent repository creation in critical system directories
+      forbidden = ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/etc", "/sys", "/proc", "/boot", "/dev"]
+      forbidden.each do |forbidden_path|
+        if normalized == forbidden_path || normalized.start_with?("#{forbidden_path}/")
+          raise BorgError, "Invalid repository path: refusing to use system directory #{normalized}"
+        end
+      end
+
+      normalized
+    end
+
     def execute_borg_command(cmd)
       env = {}
       env["BORG_PASSPHRASE"] = @passphrase if @passphrase
-      env["BORG_RELOCATED_REPO_ACCESS_IS_OK"] = "yes"
-      env["BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK"] = "yes"
+
+      # Apply Borg environment options from config (defaults to yes for backward compatibility)
+      allow_relocated = @borg_options.fetch("allow_relocated_repo", true)
+      allow_unencrypted = @borg_options.fetch("allow_unencrypted_repo", true)
+
+      env["BORG_RELOCATED_REPO_ACCESS_IS_OK"] = allow_relocated ? "yes" : "no"
+      env["BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK"] = allow_unencrypted ? "yes" : "no"
 
       # Redirect stdin from /dev/null to prevent interactive prompts
       result = system(env, *cmd, in: "/dev/null")

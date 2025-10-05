@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-10-05
+
+### Added
+- `borg_options` configuration for controlling Borg environment variables
+- Repository path validation to prevent creation in system directories
+- Backup path validation and normalization
+- Archive name sanitization (alphanumeric, dash, underscore, dot only)
+
+### Changed
+- Borg environment variables now configurable via `borg_options` (backward compatible)
+- All backup paths are now normalized to absolute paths
+- Custom archive names are automatically sanitized
+
+### Security
+- Fixed command injection vulnerability in Passbolt CLI execution (now uses Open3.capture3)
+- Added path traversal protection for extract operations
+- Implemented symlink resolution and system path protection for --remove-source
+- Changed to YAML.safe_load_file to prevent arbitrary code execution
+- Added log path validation to prevent writing to system directories
+- Added repository path validation (prevents /bin, /etc, /usr, etc.)
+- Added backup path validation (rejects empty/nil paths)
+- Added archive name sanitization (prevents injection attacks)
+- Made Borg environment options configurable for enhanced security
+- Added SECURITY.md with comprehensive security guidelines and best practices
+- Enhanced test coverage for all security features
+
 ## [0.3.0] - 2025-10-05
 
 ### Added
