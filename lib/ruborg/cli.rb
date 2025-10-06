@@ -17,7 +17,11 @@ module Ruborg
         # Try to load config to get log_file setting
         config_path = options[:config] || "ruborg.yml"
         if File.exist?(config_path)
-          config_data = YAML.safe_load_file(config_path, permitted_classes: [Symbol], aliases: true) rescue {}
+          config_data = begin
+            YAML.safe_load_file(config_path, permitted_classes: [Symbol], aliases: true)
+          rescue StandardError
+            {}
+          end
           log_path = config_data["log_file"]
         end
       end
@@ -46,16 +50,11 @@ module Ruborg
     desc "backup", "Create a backup using configuration file"
     option :name, type: :string, desc: "Archive name"
     option :remove_source, type: :boolean, default: false, desc: "Remove source files after successful backup"
-    option :all, type: :boolean, default: false, desc: "Backup all repositories (multi-repo config only)"
+    option :all, type: :boolean, default: false, desc: "Backup all repositories"
     def backup
       @logger.info("Starting backup operation with config: #{options[:config]}")
       config = Config.new(options[:config])
-
-      if config.multi_repo?
-        backup_multi_repo(config)
-      else
-        backup_single_repo(config)
-      end
+      backup_repositories(config)
     rescue Error => e
       @logger.error("Backup failed: #{e.message}")
       error_exit(e)
@@ -65,15 +64,26 @@ module Ruborg
     def list
       @logger.info("Listing archives in repository")
       config = Config.new(options[:config])
-      passphrase = fetch_passphrase_from_config(config)
 
-      repo = Repository.new(config.repository, passphrase: passphrase, borg_options: config.borg_options)
+      raise ConfigError, "Please specify --repository" unless options[:repository]
+
+      repo_config = config.get_repository(options[:repository])
+      raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
+
+      global_settings = config.global_settings
+      merged_config = global_settings.merge(repo_config)
+      passphrase = fetch_passphrase_for_repo(merged_config)
+      borg_opts = merged_config["borg_options"] || {}
+      borg_path = merged_config["borg_path"]
+
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path)
 
       # Auto-initialize repository if configured
-      if config.auto_init? && !repo.exists?
-        @logger.info("Auto-initializing repository at #{config.repository}")
+      auto_init = merged_config["auto_init"] || false
+      if auto_init && !repo.exists?
+        @logger.info("Auto-initializing repository at #{repo_config["path"]}")
         repo.create
-        puts "Repository auto-initialized at #{config.repository}"
+        puts "Repository auto-initialized at #{repo_config["path"]}"
       end
 
       repo.list
@@ -90,10 +100,23 @@ module Ruborg
       restore_target = options[:path] ? "#{options[:path]} from #{archive_name}" : archive_name
       @logger.info("Restoring #{restore_target} to #{options[:destination]}")
       config = Config.new(options[:config])
-      passphrase = fetch_passphrase_from_config(config)
 
-      repo = Repository.new(config.repository, passphrase: passphrase, borg_options: config.borg_options)
-      backup = Backup.new(repo, config: config)
+      raise ConfigError, "Please specify --repository" unless options[:repository]
+
+      repo_config = config.get_repository(options[:repository])
+      raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
+
+      global_settings = config.global_settings
+      merged_config = global_settings.merge(repo_config)
+      passphrase = fetch_passphrase_for_repo(merged_config)
+      borg_opts = merged_config["borg_options"] || {}
+      borg_path = merged_config["borg_path"]
+
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path)
+
+      # Create backup config wrapper for compatibility
+      backup_config = BackupConfig.new(repo_config, merged_config)
+      backup = Backup.new(repo, config: backup_config)
 
       backup.extract(archive_name, destination: options[:destination], path: options[:path])
       @logger.info("Successfully restored #{restore_target} to #{options[:destination]}")
@@ -112,15 +135,30 @@ module Ruborg
     def info
       @logger.info("Retrieving repository information")
       config = Config.new(options[:config])
-      passphrase = fetch_passphrase_from_config(config)
 
-      repo = Repository.new(config.repository, passphrase: passphrase, borg_options: config.borg_options)
+      # If no repository specified, show summary of all repositories
+      unless options[:repository]
+        show_repositories_summary(config)
+        return
+      end
+
+      repo_config = config.get_repository(options[:repository])
+      raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
+
+      global_settings = config.global_settings
+      merged_config = global_settings.merge(repo_config)
+      passphrase = fetch_passphrase_for_repo(merged_config)
+      borg_opts = merged_config["borg_options"] || {}
+      borg_path = merged_config["borg_path"]
+
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path)
 
       # Auto-initialize repository if configured
-      if config.auto_init? && !repo.exists?
-        @logger.info("Auto-initializing repository at #{config.repository}")
+      auto_init = merged_config["auto_init"] || false
+      if auto_init && !repo.exists?
+        @logger.info("Auto-initializing repository at #{repo_config["path"]}")
         repo.create
-        puts "Repository auto-initialized at #{config.repository}"
+        puts "Repository auto-initialized at #{repo_config["path"]}"
       end
 
       repo.info
@@ -130,20 +168,169 @@ module Ruborg
       error_exit(e)
     end
 
+    desc "check", "Check repository integrity and compatibility"
+    option :verify_data, type: :boolean, default: false, desc: "Verify repository data (slower)"
+    option :all, type: :boolean, default: false, desc: "Check all repositories"
+    def check
+      @logger.info("Checking repository compatibility")
+      config = Config.new(options[:config])
+      global_settings = config.global_settings
+
+      # Show Borg version first
+      borg_version = Repository.borg_version
+      puts "\nBorg version: #{borg_version}\n\n"
+
+      repos_to_check = if options[:all]
+                         config.repositories
+                       elsif options[:repository]
+                         repo_config = config.get_repository(options[:repository])
+                         raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
+
+                         [repo_config]
+                       else
+                         raise ConfigError, "Please specify --repository or --all"
+                       end
+
+      repos_to_check.each do |repo_config|
+        check_repository(repo_config, global_settings)
+      end
+    rescue Error => e
+      @logger.error("Check failed: #{e.message}")
+      error_exit(e)
+    end
+
     private
+
+    def check_repository(repo_config, global_settings)
+      repo_name = repo_config["name"]
+      puts "--- Checking repository: #{repo_name} ---"
+      @logger.info("Checking repository: #{repo_name}")
+
+      merged_config = global_settings.merge(repo_config)
+      passphrase = fetch_passphrase_for_repo(merged_config)
+      borg_opts = merged_config["borg_options"] || {}
+      borg_path = merged_config["borg_path"]
+
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path)
+
+      unless repo.exists?
+        puts "  ✗ Repository does not exist at #{repo_config["path"]}"
+        @logger.error("Repository does not exist: #{repo_name}")
+        puts ""
+        return
+      end
+
+      # Check compatibility
+      compatibility = repo.check_compatibility
+      puts "  Repository version: #{compatibility[:repository_version]}"
+
+      if compatibility[:compatible]
+        puts "  ✓ Compatible with Borg #{compatibility[:borg_version]}"
+        @logger.info("Repository #{repo_name} is compatible")
+      else
+        puts "  ✗ INCOMPATIBLE with Borg #{compatibility[:borg_version]}"
+        repo_ver = compatibility[:repository_version]
+        borg_ver = compatibility[:borg_version]
+        puts "    Repository version #{repo_ver} cannot be read by Borg #{borg_ver}"
+        puts "    Please upgrade Borg or migrate the repository"
+        @logger.error("Repository #{repo_name} is incompatible with installed Borg version")
+      end
+
+      # Run integrity check if requested
+      if options[:verify_data]
+        puts "  Running integrity check..."
+        @logger.info("Running integrity check on #{repo_name}")
+        repo.check
+        puts "  ✓ Integrity check passed"
+        @logger.info("Integrity check passed for #{repo_name}")
+      end
+
+      puts ""
+    rescue BorgError => e
+      puts "  ✗ Check failed: #{e.message}"
+      @logger.error("Check failed for #{repo_name}: #{e.message}")
+      puts ""
+    end
+
+    def show_repositories_summary(config)
+      repositories = config.repositories
+      global_settings = config.global_settings
+
+      if repositories.empty?
+        puts "No repositories configured."
+        return
+      end
+
+      puts "\n═══════════════════════════════════════════════════════════════"
+      puts "  RUBORG REPOSITORIES SUMMARY"
+      puts "═══════════════════════════════════════════════════════════════\n\n"
+
+      # Show global settings
+      puts "Global Settings:"
+      puts "  Compression:    #{global_settings["compression"] || "lz4 (default)"}"
+      puts "  Encryption:     #{global_settings["encryption"] || "repokey (default)"}"
+      puts "  Auto-init:      #{global_settings["auto_init"] || false}"
+      puts "  Retention:      #{format_retention(global_settings["retention"])}" if global_settings["retention"]
+      puts ""
+
+      puts "Configured Repositories (#{repositories.size}):"
+      puts "─────────────────────────────────────────────────────────────────\n\n"
+
+      repositories.each_with_index do |repo, index|
+        merged_config = global_settings.merge(repo)
+
+        puts "#{index + 1}. #{repo["name"]}"
+        puts "   Path:        #{repo["path"]}"
+        puts "   Description: #{repo["description"]}" if repo["description"]
+
+        # Show repo-specific overrides
+        puts "   Compression: #{repo["compression"]}" if repo["compression"]
+        puts "   Encryption:  #{repo["encryption"]}" if repo["encryption"]
+        puts "   Auto-init:   #{repo["auto_init"]}" unless repo["auto_init"].nil?
+        if repo["retention"]
+          puts "   Retention:   #{format_retention(repo["retention"])}"
+        elsif merged_config["retention"]
+          puts "   Retention:   #{format_retention(merged_config["retention"])} (global)"
+        end
+
+        # Show sources
+        sources = repo["sources"] || []
+        puts "   Sources (#{sources.size}):"
+        sources.each do |source|
+          paths = source["paths"] || []
+          puts "     - #{source["name"]}: #{paths.size} path(s)"
+        end
+
+        puts ""
+      end
+
+      puts "─────────────────────────────────────────────────────────────────"
+      puts "Use 'ruborg info --repository NAME' for detailed information\n\n"
+    end
+
+    def format_retention(retention)
+      return "none" if retention.nil? || retention.empty?
+
+      parts = []
+      # Count-based retention
+      parts << "#{retention["keep_hourly"]}h" if retention["keep_hourly"]
+      parts << "#{retention["keep_daily"]}d" if retention["keep_daily"]
+      parts << "#{retention["keep_weekly"]}w" if retention["keep_weekly"]
+      parts << "#{retention["keep_monthly"]}m" if retention["keep_monthly"]
+      parts << "#{retention["keep_yearly"]}y" if retention["keep_yearly"]
+
+      # Time-based retention
+      parts << "within #{retention["keep_within"]}" if retention["keep_within"]
+      parts << "last #{retention["keep_last"]}" if retention["keep_last"]
+
+      parts.empty? ? "none" : parts.join(", ")
+    end
 
     def get_passphrase(passphrase, passbolt_id)
       return passphrase if passphrase
       return Passbolt.new(resource_id: passbolt_id).get_password if passbolt_id
 
       nil
-    end
-
-    def fetch_passphrase_from_config(config)
-      passbolt_config = config.passbolt_integration
-      return nil if passbolt_config.empty?
-
-      Passbolt.new(resource_id: passbolt_config["resource_id"]).get_password
     end
 
     def error_exit(error)
@@ -168,7 +355,7 @@ module Ruborg
       unless File.directory?(log_dir)
         begin
           FileUtils.mkdir_p(log_dir)
-        rescue => e
+        rescue StandardError => e
           raise ConfigError, "Cannot create log directory #{log_dir}: #{e.message}"
         end
       end
@@ -176,46 +363,18 @@ module Ruborg
       normalized_path
     end
 
-    # Single repository backup (legacy)
-    def backup_single_repo(config)
-      @logger.info("Backing up paths: #{config.backup_paths.join(', ')}")
-      passphrase = fetch_passphrase_from_config(config)
-
-      repo = Repository.new(config.repository, passphrase: passphrase, borg_options: config.borg_options)
-
-      # Auto-initialize repository if configured
-      if config.auto_init? && !repo.exists?
-        @logger.info("Auto-initializing repository at #{config.repository}")
-        repo.create
-        puts "Repository auto-initialized at #{config.repository}"
-      end
-
-      backup = Backup.new(repo, config: config)
-
-      archive_name = options[:name] ? sanitize_archive_name(options[:name]) : Time.now.strftime("%Y-%m-%d_%H-%M-%S")
-      @logger.info("Creating archive: #{archive_name}")
-      backup.create(name: archive_name, remove_source: options[:remove_source])
-      @logger.info("Backup created successfully: #{archive_name}")
-
-      if options[:remove_source]
-        @logger.info("Removed source files: #{config.backup_paths.join(', ')}")
-      end
-
-      puts "Backup created successfully"
-      puts "Source files removed" if options[:remove_source]
-    end
-
-    # Multi-repository backup
-    def backup_multi_repo(config)
+    # Backup repositories based on options
+    def backup_repositories(config)
       global_settings = config.global_settings
       repos_to_backup = if options[:all]
                           config.repositories
                         elsif options[:repository]
                           repo_config = config.get_repository(options[:repository])
                           raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
+
                           [repo_config]
                         else
-                          raise ConfigError, "Please specify --repository or --all for multi-repo config"
+                          raise ConfigError, "Please specify --repository or --all"
                         end
 
       repos_to_backup.each do |repo_config|
@@ -233,31 +392,52 @@ module Ruborg
 
       passphrase = fetch_passphrase_for_repo(merged_config)
       borg_opts = merged_config["borg_options"] || {}
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts)
+      borg_path = merged_config["borg_path"]
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path)
 
       # Auto-initialize if configured
       auto_init = merged_config["auto_init"] || false
       if auto_init && !repo.exists?
-        @logger.info("Auto-initializing repository at #{repo_config['path']}")
+        @logger.info("Auto-initializing repository at #{repo_config["path"]}")
         repo.create
-        puts "Repository auto-initialized at #{repo_config['path']}"
+        puts "Repository auto-initialized at #{repo_config["path"]}"
       end
+
+      # Get retention mode (defaults to standard)
+      retention_mode = merged_config["retention_mode"] || "standard"
 
       # Create backup config wrapper
       backup_config = BackupConfig.new(repo_config, merged_config)
-      backup = Backup.new(repo, config: backup_config)
+      backup = Backup.new(repo, config: backup_config, retention_mode: retention_mode, repo_name: repo_name)
 
-      archive_name = options[:name] ? sanitize_archive_name(options[:name]) : "#{repo_name}-#{Time.now.strftime('%Y-%m-%d_%H-%M-%S')}"
-      @logger.info("Creating archive: #{archive_name}")
+      archive_name = options[:name] ? sanitize_archive_name(options[:name]) : nil
+      @logger.info("Creating archive#{"s" if retention_mode == "per_file"}: #{archive_name || "auto-generated"}")
 
       sources = repo_config["sources"] || []
-      @logger.info("Backing up #{sources.size} source(s)")
+      @logger.info("Backing up #{sources.size} source(s)#{" in per-file mode" if retention_mode == "per_file"}")
 
       backup.create(name: archive_name, remove_source: options[:remove_source])
-      @logger.info("Backup created successfully: #{archive_name}")
+      @logger.info("Backup created successfully")
 
-      puts "✓ Backup created: #{archive_name}"
+      if retention_mode == "per_file"
+        puts "✓ Per-file backups created"
+      else
+        puts "✓ Backup created: #{archive_name || "auto-generated"}"
+      end
       puts "  Sources removed" if options[:remove_source]
+
+      # Auto-prune if configured and retention policy exists
+      auto_prune = merged_config["auto_prune"] || false
+      retention_policy = merged_config["retention"]
+
+      return unless auto_prune && retention_policy && !retention_policy.empty?
+
+      mode_desc = retention_mode == "per_file" ? "per-file mode" : "standard mode"
+      @logger.info("Auto-pruning repository: #{repo_name} (#{mode_desc})")
+      puts "  Pruning old backups (#{mode_desc})..."
+      repo.prune(retention_policy, retention_mode: retention_mode)
+      @logger.info("Pruning completed successfully for #{repo_name}")
+      puts "  ✓ Pruning completed"
     end
 
     def fetch_passphrase_for_repo(repo_config)
@@ -272,16 +452,15 @@ module Ruborg
 
       # Check if name contains at least one valid character before sanitization
       unless name =~ /[a-zA-Z0-9._-]/
-        raise ConfigError, "Invalid archive name: must contain at least one valid character (alphanumeric, dot, dash, or underscore)"
+        raise ConfigError,
+              "Invalid archive name: must contain at least one valid character (alphanumeric, dot, dash, or underscore)"
       end
 
       # Allow only alphanumeric, dash, underscore, and dot
-      sanitized = name.gsub(/[^a-zA-Z0-9._-]/, '_')
-
-      sanitized
+      name.gsub(/[^a-zA-Z0-9._-]/, "_")
     end
 
-    # Wrapper class to adapt multi-repo config to existing Backup class
+    # Wrapper class to adapt repository config to existing Backup class
     class BackupConfig
       def initialize(repo_config, merged_settings)
         @repo_config = repo_config
@@ -299,9 +478,9 @@ module Ruborg
         patterns = []
         sources = @repo_config["sources"] || []
         sources.each do |source|
-          patterns += (source["exclude"] || [])
+          patterns += source["exclude"] || []
         end
-        patterns += (@merged_settings["exclude_patterns"] || [])
+        patterns += @merged_settings["exclude_patterns"] || []
         patterns.uniq
       end
 

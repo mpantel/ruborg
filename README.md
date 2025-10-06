@@ -17,7 +17,14 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 📊 **Logging** - Comprehensive logging with daily rotation
 - 🗄️ **Multi-Repository** - Manage multiple backup repositories with different sources
 - 🔄 **Auto-initialization** - Automatically initialize repositories on first use
-- ✅ **Well-tested** - Comprehensive test suite with RSpec
+e- ⏰ **Retention Policies** - Configure backup retention (hourly, daily, weekly, monthly, yearly)
+- 🗑️ **Automatic Pruning** - Automatically remove old backups based on retention policies
+- 📁 **Per-File Backup Mode** - NEW! Backup each file as a separate archive with metadata-based retention
+- 🕒 **File Metadata Retention** - NEW! Prune based on file modification time, works even after files are deleted
+- 📋 **Repository Descriptions** - Document each repository's purpose
+- 📈 **Summary View** - Quick overview of all repositories and their configurations
+- 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
+- ✅ **Well-tested** - Comprehensive test suite with RSpec (147 tests)
 - 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites
@@ -66,64 +73,44 @@ gem install ruborg
 
 ## Configuration
 
-Ruborg supports two configuration formats: **single repository** (legacy) and **multi-repository** (recommended for complex setups).
+Create your configuration file from the example template:
 
-### Single Repository Configuration
-
-```yaml
-# Repository path
-repository: /path/to/borg/repository
-
-# Paths to backup
-backup_paths:
-  - /home/user/documents
-  - /home/user/projects
-
-# Exclude patterns
-exclude_patterns:
-  - "*.tmp"
-  - "*.log"
-
-# Compression algorithm (lz4, zstd, zlib, lzma, none)
-compression: lz4
-
-# Encryption mode (repokey, keyfile, none)
-encryption: repokey
-
-# Passbolt integration (optional)
-passbolt:
-  resource_id: "your-passbolt-resource-uuid"
-
-# Auto-initialize repository (optional, default: false)
-auto_init: true
-
-# Log file path (optional, default: ~/.ruborg/logs/ruborg.log)
-log_file: /var/log/ruborg.log
-
-# Borg environment options (optional)
-borg_options:
-  allow_relocated_repo: true  # Allow relocated repositories (default: true)
-  allow_unencrypted_repo: true  # Allow unencrypted repositories (default: true)
+```bash
+cp ruborg.yml.example ruborg.yml
+chmod 600 ruborg.yml  # Important: protect your configuration
 ```
 
-### Multi-Repository Configuration
-
-For managing multiple repositories with different sources:
+Then edit `ruborg.yml` with your settings. Ruborg uses a multi-repository YAML configuration format:
 
 ```yaml
 # Global settings (applied to all repositories unless overridden)
 compression: lz4
 encryption: repokey
 auto_init: true
+log_file: /var/log/ruborg.log
+
+# Custom Borg executable path (optional)
+# Use this if borg is not in PATH or you want to use a specific version
+# borg_path: /usr/local/bin/borg
+
 passbolt:
   resource_id: "global-passbolt-id"
 borg_options:
   allow_relocated_repo: false
   allow_unencrypted_repo: false
 
+# Global retention policy (can be overridden per repository)
+retention:
+  keep_hourly: 24    # Keep 24 hourly backups
+  keep_daily: 7      # Keep 7 daily backups
+  keep_weekly: 4     # Keep 4 weekly backups
+  keep_monthly: 6    # Keep 6 monthly backups
+  keep_yearly: 1     # Keep 1 yearly backup
+
 # Multiple repositories
 repositories:
   - name: documents
+    description: "Personal and work documents backup"
     path: /mnt/backup/documents
     sources:
       - name: home-docs
@@ -138,10 +125,18 @@ repositories:
           - "*.log"
 
   - name: databases
+    description: "MySQL and PostgreSQL database dumps"
     path: /mnt/backup/databases
     # Repository-specific passbolt (overrides global)
     passbolt:
       resource_id: "db-specific-passbolt-id"
+    # Repository-specific retention (overrides global)
+    retention:
+      keep_daily: 14
+      keep_weekly: 8
+      keep_monthly: 12
+    # Repository-specific borg executable path (optional)
+    # borg_path: /opt/borg-2.0/bin/borg
     sources:
       - name: mysql
         paths:
@@ -149,14 +144,29 @@ repositories:
       - name: postgres
         paths:
           - /var/lib/postgresql/dumps
+
+  - name: media
+    description: "Photos and videos archive"
+    path: /mnt/backup/media
+    # Override compression for large media files
+    compression: lz4
+    retention:
+      keep_weekly: 2
+      keep_monthly: 3
+    sources:
+      - name: photos
+        paths:
+          - /home/user/Pictures
 ```
 
-**Multi-repo benefits:**
-- Organize backups by type (documents, databases, media)
-- Different encryption keys per repository
-- Multiple sources per repository
-- Per-source exclude patterns
-- Repository-specific settings override global ones
+**Configuration Features:**
+- **Descriptions**: Add `description` field to document each repository's purpose
+- **Global Settings**: Compression, encryption, auto_init, log_file, borg_path, borg_options, and retention apply to all repositories
+- **Per-Repository Overrides**: Any global setting can be overridden at the repository level (including custom borg_path per repository)
+- **Custom Borg Path**: Specify a custom Borg executable path if borg is not in PATH or to use a specific version
+- **Retention Policies**: Define how many backups to keep (hourly, daily, weekly, monthly, yearly)
+- **Multiple Sources**: Each repository can have multiple backup sources with their own exclude patterns
+- **Flexible Organization**: Organize backups by type (documents, databases, media) with different policies
 
 ## Usage
 
@@ -172,22 +182,6 @@ ruborg init /path/to/repository --passbolt-id "resource-uuid"
 
 ### Create a Backup
 
-**Single repository:**
-```bash
-# Using default configuration (ruborg.yml)
-ruborg backup
-
-# Using custom configuration file
-ruborg backup --config /path/to/config.yml
-
-# With custom archive name
-ruborg backup --name "my-backup-2025-10-04"
-
-# Remove source files after successful backup
-ruborg backup --remove-source
-```
-
-**Multi-repository:**
 ```bash
 # Backup specific repository
 ruborg backup --repository documents
@@ -197,31 +191,82 @@ ruborg backup --all
 
 # Backup specific repository with custom name
 ruborg backup --repository databases --name "db-backup-2025-10-05"
+
+# Using custom configuration file
+ruborg backup --config /path/to/config.yml --repository documents
+
+# Remove source files after successful backup
+ruborg backup --repository documents --remove-source
 ```
 
 ### List Archives
 
 ```bash
-ruborg list
+# List archives for a specific repository
+ruborg list --repository documents
 ```
 
 ### Restore from Archive
 
 ```bash
 # Restore entire archive to current directory
-ruborg restore archive-name
+ruborg restore archive-name --repository documents
 
 # Restore to specific directory
-ruborg restore archive-name --destination /path/to/restore
+ruborg restore archive-name --repository documents --destination /path/to/restore
 
 # Restore a single file from archive
-ruborg restore archive-name --path /path/to/file.txt --destination /new/location
+ruborg restore archive-name --repository documents --path /path/to/file.txt --destination /new/location
 ```
 
 ### View Repository Information
 
 ```bash
+# Show summary of all configured repositories
 ruborg info
+
+# View detailed info for a specific repository
+ruborg info --repository documents
+```
+
+The `info` command without `--repository` displays a summary showing:
+- Global configuration settings
+- All configured repositories with their descriptions
+- Retention policies (global and per-repository overrides)
+- Number of sources per repository
+
+### Check Repository Compatibility
+
+```bash
+# Check specific repository compatibility with installed Borg version
+ruborg check --repository documents
+
+# Check all repositories
+ruborg check --all
+
+# Check with data integrity verification (slower)
+ruborg check --repository documents --verify-data
+```
+
+The `check` command verifies:
+- Installed Borg version
+- Repository format version
+- Compatibility between Borg and repository versions
+- Optionally: Repository data integrity (with `--verify-data`)
+
+**Example output:**
+```
+Borg version: 1.2.8
+
+--- Checking repository: documents ---
+  Repository version: 1
+  ✓ Compatible with Borg 1.2.8
+
+--- Checking repository: databases ---
+  Repository version: 2
+  ✗ INCOMPATIBLE with Borg 1.2.8
+    Repository version 2 cannot be read by Borg 1.2.8
+    Please upgrade Borg or migrate the repository
 ```
 
 ## Logging
@@ -278,15 +323,17 @@ Ruborg will automatically retrieve the passphrase when performing backup operati
 
 ## Auto-initialization
 
-Set `auto_init: true` in your configuration file to automatically initialize the repository on first use:
+Set `auto_init: true` in the global settings or per-repository to automatically initialize repositories on first use:
 
 ```yaml
-repository: /path/to/borg/repository
 auto_init: true
-passbolt:
-  resource_id: "your-passbolt-resource-uuid"
-backup_paths:
-  - /path/to/backup
+repositories:
+  - name: documents
+    path: /path/to/borg/repository
+    sources:
+      - name: main
+        paths:
+          - /path/to/backup
 ```
 
 When enabled, ruborg will automatically run `borg init` if the repository doesn't exist when you run `backup`, `list`, or `info` commands. The passphrase will be retrieved from Passbolt if configured.
@@ -323,21 +370,231 @@ See [SECURITY.md](SECURITY.md) for detailed security information and best practi
 | Command | Description | Options |
 |---------|-------------|---------|
 | `init REPOSITORY` | Initialize a new Borg repository | `--passphrase`, `--passbolt-id`, `--log` |
-| `backup` | Create a backup using config file | `--config`, `--name`, `--remove-source`, `--repository`, `--all`, `--log` |
+| `backup` | Create a backup using config file | `--config`, `--repository`, `--all`, `--name`, `--remove-source`, `--log` |
 | `list` | List all archives in repository | `--config`, `--repository`, `--log` |
-| `restore ARCHIVE` | Restore files from archive | `--config`, `--destination`, `--path`, `--repository`, `--log` |
+| `restore ARCHIVE` | Restore files from archive | `--config`, `--repository`, `--destination`, `--path`, `--log` |
 | `info` | Show repository information | `--config`, `--repository`, `--log` |
+| `check` | Check repository integrity and compatibility | `--config`, `--repository`, `--all`, `--verify-data`, `--log` |
 
-### Global Options
+### Options
 
 - `--config`: Path to configuration file (default: `ruborg.yml`)
 - `--log`: Path to log file (overrides config, default: `~/.ruborg/logs/ruborg.log`)
-- `--repository` / `-r`: Repository name (required for multi-repo configs)
+- `--repository` / `-r`: Repository name (optional for info, required for backup/list/restore/check unless --all)
+- `--all`: Process all repositories (backup and check commands)
+- `--name`: Custom archive name (backup command only)
+- `--remove-source`: Remove source files after successful backup (backup command only)
+- `--destination`: Destination directory for restore (restore command only)
+- `--path`: Specific file or directory to restore (restore command only)
+- `--verify-data`: Run full data integrity check (check command only, slower)
 
-### Multi-Repository Options
+## Retention Policies
 
-- `--all`: Backup all repositories (multi-repo config only)
-- `--repository NAME`: Target specific repository by name
+Retention policies define how many backups to keep. You can use **count-based rules**, **time-based rules**, or **both together** for maximum flexibility.
+
+### Count-based Retention
+
+Keep a specific number of backups for each time interval:
+
+```yaml
+retention:
+  keep_hourly: 24    # Keep last 24 hourly backups
+  keep_daily: 7      # Keep last 7 daily backups
+  keep_weekly: 4     # Keep last 4 weekly backups
+  keep_monthly: 6    # Keep last 6 monthly backups
+  keep_yearly: 1     # Keep last 1 yearly backup
+```
+
+### Time-based Retention
+
+Keep backups based on time periods:
+
+```yaml
+retention:
+  keep_within: "7d"      # Keep ALL backups within last 7 days
+  keep_last: "30d"       # Keep at least one backup from last 30 days
+```
+
+### Combining Time-based and Count-based Rules
+
+**Yes, you can combine both types!** When you use both time-based and count-based rules together, they work **additively** - Borg keeps the **union** of all matching backups.
+
+```yaml
+retention:
+  keep_within: "2d"      # Keep everything from last 2 days
+  keep_daily: 7          # PLUS keep 7 daily backups (goes back ~7 days)
+  keep_weekly: 4         # PLUS keep 4 weekly backups (goes back ~4 weeks)
+  keep_monthly: 6        # PLUS keep 6 monthly backups (goes back ~6 months)
+```
+
+**How this works:** Borg will keep a backup if it matches **ANY** of these rules:
+- Backup is within the last 2 days, OR
+- Backup is one of the last 7 daily backups, OR
+- Backup is one of the last 4 weekly backups, OR
+- Backup is one of the last 6 monthly backups
+
+**Practical example:**
+
+```yaml
+# Database backups - keep recent changes, long-term history
+retention:
+  keep_within: "1d"      # Everything from last 24 hours (frequent changes)
+  keep_daily: 14         # Plus 14 days of daily backups (2 weeks)
+  keep_weekly: 8         # Plus 8 weeks of weekly backups (2 months)
+  keep_monthly: 12       # Plus 12 months of monthly backups (1 year)
+  keep_yearly: 3         # Plus 3 years of yearly backups
+```
+
+This configuration provides:
+- **Maximum detail** for recent backups (last 24 hours - every backup kept)
+- **Daily granularity** for the last 2 weeks
+- **Weekly granularity** for the last 2 months
+- **Monthly granularity** for the last year
+- **Yearly snapshots** for long-term compliance
+
+**Time format:** Use suffixes like `d` (days), `w` (weeks), `m` (months), `y` (years). Examples: `7d`, `4w`, `6m`, `1y`
+
+**Configuration notes:**
+- Policies can be set globally and overridden per repository
+- All fields are optional - use only what you need
+- `keep_within`: Keeps **all** archives created within the specified time period
+- `keep_last`: Ensures at least one backup from the last specified time period is kept
+- **Rules are additive** - combining rules keeps MORE backups, not fewer
+- Retention settings are displayed in the `ruborg info` summary
+
+### Per-File Backup Mode with File Metadata Retention
+
+**NEW:** Ruborg supports a per-file backup mode where each file is backed up as a separate archive. This enables intelligent retention based on **file modification time** rather than backup creation time.
+
+**Use Case:** Keep backups of actively modified files while automatically pruning backups of files that haven't been modified recently - even after the source files are deleted.
+
+```yaml
+repositories:
+  - name: project-files
+    description: "Active project files with metadata-based retention"
+    path: /mnt/backup/project-files
+    retention_mode: per_file      # Enable per-file backup mode
+    retention:
+      # Prune based on file metadata (modification time) read from archives
+      keep_files_modified_within: "30d"  # Keep files modified in last 30 days
+      # Traditional retention also applies
+      keep_daily: 7
+    sources:
+      - name: projects
+        paths:
+          - /home/user/projects
+        exclude:
+          - "*.tmp"
+          - "*/.cache/*"
+```
+
+**How it works:**
+- **Per-File Archives**: Each file is backed up as a separate Borg archive
+- **Hash-Based Naming**: Archives are named `repo-{hash}-{timestamp}` (hash uniquely identifies the file path)
+- **Original Path Stored**: The complete original file path is stored in the archive comment
+- **Metadata Preservation**: Borg preserves all file metadata (mtime, size, permissions) in the archive
+- **Smart Pruning**: Retention reads file mtime directly from archives - works even after files are deleted
+
+**File Metadata Retention Options:**
+- `keep_files_modified_within`: Keep archives containing files modified within the specified time period
+  - Reads mtime from inside the Borg archive
+  - Works even if source files are deleted
+  - Example: `"30d"` keeps files modified in the last 30 days
+
+**Mixed Mode Example:**
+```yaml
+repositories:
+  # Standard mode for full system backups
+  - name: system
+    path: /mnt/backup/system
+    retention_mode: standard    # Default: one archive per backup run
+    retention:
+      keep_daily: 7
+    sources:
+      - name: etc
+        paths:
+          - /etc
+
+  # Per-file mode for active development files
+  - name: active-code
+    path: /mnt/backup/code
+    retention_mode: per_file    # One archive per file
+    retention:
+      keep_files_modified_within: "60d"
+      keep_monthly: 12           # Plus monthly snapshots
+    sources:
+      - name: projects
+        paths:
+          - /home/user/dev
+```
+
+**Performance Note:** Per-file mode creates many archives (one per file). Borg handles this efficiently due to deduplication, but it's best suited for directories with hundreds to thousands of files rather than millions.
+
+**Backup vs Retention:** The per-file `retention_mode` only affects how archives are created and pruned. Traditional backup commands still work normally - you can list, restore, and check per-file archives just like standard archives.
+
+### Automatic Pruning
+
+Enable **automatic pruning** to remove old backups after each backup operation:
+
+```yaml
+# Global configuration
+auto_prune: true    # Enable automatic pruning for all repositories
+retention:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 6
+
+repositories:
+  - name: documents
+    path: /mnt/backup/documents
+    sources:
+      - name: main
+        paths:
+          - /home/user/documents
+
+  - name: databases
+    path: /mnt/backup/databases
+    auto_prune: true   # Override: enable pruning for this repository only
+    retention:
+      keep_daily: 14   # Override: use different retention policy
+      keep_weekly: 8
+      keep_monthly: 12
+    sources:
+      - name: mysql
+        paths:
+          - /var/lib/mysql/dumps
+```
+
+**How it works:**
+- When `auto_prune: true` is set, Ruborg automatically runs `borg prune` after each successful backup
+- Pruning removes old archives that don't match any retention rule
+- If both global and repository-specific `auto_prune` are set, repository-specific takes precedence
+- Requires a retention policy to be configured (otherwise pruning is skipped)
+- Pruning statistics are displayed after completion
+
+**Example output:**
+
+```
+--- Backing up repository: documents ---
+✓ Backup created: documents-2025-10-06_12-30-45
+  Pruning old backups...
+  ✓ Pruning completed
+```
+
+**Manual pruning:**
+
+If you prefer to prune manually or have `auto_prune: false`, run Borg's prune command directly:
+
+```bash
+# Example: Apply retention policy to a repository
+BORG_PASSPHRASE="your-passphrase" borg prune \
+  --keep-hourly=24 \
+  --keep-daily=7 \
+  --keep-weekly=4 \
+  --keep-monthly=6 \
+  --keep-yearly=1 \
+  /path/to/repository
+```
 
 ## Development
 

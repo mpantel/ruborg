@@ -54,6 +54,18 @@ Ruborg implements several security measures to protect your backup operations:
 - Allows control over unencrypted repository access via config
 - Defaults to safe settings while maintaining backward compatibility
 
+### 11. Borg Executable Validation
+- Validates that `borg_path` points to an actual executable file
+- Verifies the executable is actually Borg by checking version output
+- Prevents execution of arbitrary binaries specified in config
+- Searches PATH for command-name-only specifications
+
+### 12. Dependency Vulnerability Scanning
+- Uses `bundler-audit` to check for known vulnerabilities
+- Regular database updates ensure latest security advisories
+- Integrated into development workflow
+- Run: `bundle exec bundle-audit check`
+
 ## Security Best Practices
 
 ### When Using `--remove-source`
@@ -66,9 +78,27 @@ Ruborg implements several security measures to protect your backup operations:
 4. **Use absolute paths** in configuration to avoid ambiguity
 
 ### Configuration File Security
-- Store configuration files with restricted permissions: `chmod 600 ruborg.yml`
+
+**CRITICAL**: Always protect your configuration file with restrictive permissions:
+
+```bash
+# Set owner-only read/write permissions
+chmod 600 ruborg.yml
+
+# Verify permissions
+ls -l ruborg.yml
+# Should show: -rw------- 1 user user ... ruborg.yml
+
+# For shared environments with a backup group
+chmod 640 ruborg.yml
+chown user:backup ruborg.yml
+```
+
+**Additional recommendations:**
 - Never commit Passbolt resource IDs to public repositories
 - Use environment variables for sensitive paths when possible
+- Store config files outside web-accessible directories
+- Regularly audit who has access to the config file
 
 ### Repository Security
 - Use encrypted repositories (default: `encryption: repokey`)
@@ -114,7 +144,16 @@ We will respond within 48 hours and work with you to address the issue.
 
 ## Security Audit History
 
-- **v0.3.1** (2025-10-05): Comprehensive security hardening
+- **v0.4.0** (2025-10-06): Complete command injection elimination
+  - **CRITICAL**: Fixed all remaining command injection vulnerabilities in repository.rb
+  - Replaced all backtick execution with Open3.capture3/capture2e methods
+  - Added Borg executable validation to prevent arbitrary binary execution
+  - Integrated bundler-audit for dependency vulnerability scanning
+  - Removed unused env_to_cmd_prefix method
+  - Enhanced security documentation with config file permission requirements
+  - Zero known vulnerabilities in dependencies
+
+- **v0.3.1** (2025-10-05): Initial security hardening
   - Fixed command injection in Passbolt CLI execution (uses Open3.capture3)
   - Added path traversal protection for extract operations
   - Implemented symlink protection for file deletion with --remove-source

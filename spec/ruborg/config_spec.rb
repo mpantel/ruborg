@@ -4,185 +4,145 @@ require "spec_helper"
 
 RSpec.describe Ruborg::Config do
   describe "#initialize" do
-    it "loads a valid YAML configuration file" do
-      config_data = {
-        "repository" => "/path/to/repo",
-        "backup_paths" => ["/path/to/backup"],
-        "compression" => "lz4"
-      }
-      config_path = create_test_config(config_data)
+    it "loads a valid multi-repository YAML configuration file" do
+      config_path = create_repository_config(
+        "/path/to/repo",
+        ["/path/to/backup"]
+      )
 
       config = described_class.new(config_path)
 
-      expect(config.data).to eq(config_data)
+      expect(config.data).to be_a(Hash)
+      expect(config.data["repositories"]).to be_an(Array)
     end
 
     it "raises ConfigError when file does not exist" do
-      expect {
+      expect do
         described_class.new("/non/existent/path.yml")
-      }.to raise_error(Ruborg::ConfigError, /Configuration file not found/)
+      end.to raise_error(Ruborg::ConfigError, /Configuration file not found/)
     end
 
     it "raises ConfigError for invalid YAML syntax" do
       config_path = File.join(tmpdir, "invalid.yml")
       File.write(config_path, "invalid: yaml: syntax:")
 
-      expect {
+      expect do
         described_class.new(config_path)
-      }.to raise_error(Ruborg::ConfigError, /Invalid YAML syntax/)
+      end.to raise_error(Ruborg::ConfigError, /Invalid YAML syntax/)
+    end
+
+    it "raises ConfigError for single-repository format" do
+      config_data = {
+        "repository" => "/path/to/repo",
+        "backup_paths" => ["/path/to/backup"]
+      }
+      config_path = create_test_config(config_data)
+
+      expect do
+        described_class.new(config_path)
+      end.to raise_error(Ruborg::ConfigError, /Multi-repository format required/)
     end
   end
 
-  describe "#repository" do
-    it "returns the repository path" do
-      config_data = { "repository" => "/path/to/repo" }
-      config_path = create_test_config(config_data)
-
+  describe "#repositories" do
+    it "returns the repositories array" do
+      config_path = create_repository_config("/path/to/repo", ["/path/to/backup"])
       config = described_class.new(config_path)
 
-      expect(config.repository).to eq("/path/to/repo")
+      expect(config.repositories).to be_an(Array)
+      expect(config.repositories.first["name"]).to eq("test-repo")
+    end
+
+    it "returns empty array when no repositories specified" do
+      config_data = { "repositories" => [] }
+      config_path = create_test_config(config_data)
+      config = described_class.new(config_path)
+
+      expect(config.repositories).to eq([])
     end
   end
 
-  describe "#backup_paths" do
-    it "returns the backup paths" do
-      config_data = { "backup_paths" => ["/path/1", "/path/2"] }
-      config_path = create_test_config(config_data)
-
+  describe "#get_repository" do
+    it "returns the specified repository by name" do
+      config_path = create_repository_config("/path/to/repo", ["/path/to/backup"])
       config = described_class.new(config_path)
 
-      expect(config.backup_paths).to eq(["/path/1", "/path/2"])
+      repo = config.get_repository("test-repo")
+
+      expect(repo).to be_a(Hash)
+      expect(repo["name"]).to eq("test-repo")
+      expect(repo["path"]).to eq("/path/to/repo")
     end
 
-    it "returns empty array when not specified" do
-      config_path = create_test_config({})
-
+    it "returns nil when repository not found" do
+      config_path = create_repository_config("/path/to/repo", ["/path/to/backup"])
       config = described_class.new(config_path)
 
-      expect(config.backup_paths).to eq([])
-    end
-  end
+      repo = config.get_repository("nonexistent")
 
-  describe "#exclude_patterns" do
-    it "returns the exclude patterns" do
-      config_data = { "exclude_patterns" => ["*.tmp", "*.log"] }
-      config_path = create_test_config(config_data)
-
-      config = described_class.new(config_path)
-
-      expect(config.exclude_patterns).to eq(["*.tmp", "*.log"])
-    end
-
-    it "returns empty array when not specified" do
-      config_path = create_test_config({})
-
-      config = described_class.new(config_path)
-
-      expect(config.exclude_patterns).to eq([])
+      expect(repo).to be_nil
     end
   end
 
-  describe "#compression" do
-    it "returns the specified compression" do
-      config_data = { "compression" => "zstd" }
+  describe "#repository_names" do
+    it "returns array of repository names" do
+      config_data = {
+        "repositories" => [
+          { "name" => "repo1", "path" => "/path1", "sources" => [{ "name" => "s1", "paths" => ["/p1"] }] },
+          { "name" => "repo2", "path" => "/path2", "sources" => [{ "name" => "s2", "paths" => ["/p2"] }] }
+        ]
+      }
       config_path = create_test_config(config_data)
-
       config = described_class.new(config_path)
 
-      expect(config.compression).to eq("zstd")
+      expect(config.repository_names).to eq(%w[repo1 repo2])
     end
 
-    it "returns default lz4 when not specified" do
-      config_path = create_test_config({})
-
+    it "returns empty array when no repositories" do
+      config_data = { "repositories" => [] }
+      config_path = create_test_config(config_data)
       config = described_class.new(config_path)
 
-      expect(config.compression).to eq("lz4")
+      expect(config.repository_names).to eq([])
     end
   end
 
-  describe "#encryption_mode" do
-    it "returns the specified encryption mode" do
-      config_data = { "encryption" => "keyfile" }
+  describe "#global_settings" do
+    it "returns global settings hash" do
+      config_data = {
+        "compression" => "lz4",
+        "encryption" => "repokey",
+        "auto_init" => true,
+        "log_file" => "/var/log/ruborg.log",
+        "passbolt" => { "resource_id" => "test-uuid" },
+        "repositories" => [
+          { "name" => "repo1", "path" => "/path1", "sources" => [{ "name" => "s1", "paths" => ["/p1"] }] }
+        ]
+      }
       config_path = create_test_config(config_data)
-
       config = described_class.new(config_path)
 
-      expect(config.encryption_mode).to eq("keyfile")
+      settings = config.global_settings
+
+      expect(settings["compression"]).to eq("lz4")
+      expect(settings["encryption"]).to eq("repokey")
+      expect(settings["auto_init"]).to be true
+      expect(settings["log_file"]).to eq("/var/log/ruborg.log")
+      expect(settings["passbolt"]).to eq({ "resource_id" => "test-uuid" })
     end
 
-    it "returns default repokey when not specified" do
-      config_path = create_test_config({})
-
-      config = described_class.new(config_path)
-
-      expect(config.encryption_mode).to eq("repokey")
-    end
-  end
-
-  describe "#passbolt_integration" do
-    it "returns passbolt configuration" do
-      config_data = { "passbolt" => { "resource_id" => "test-uuid" } }
+    it "returns empty hash when no global settings" do
+      config_data = {
+        "repositories" => [
+          { "name" => "repo1", "path" => "/path1", "sources" => [{ "name" => "s1", "paths" => ["/p1"] }] }
+        ]
+      }
       config_path = create_test_config(config_data)
-
       config = described_class.new(config_path)
 
-      expect(config.passbolt_integration).to eq({ "resource_id" => "test-uuid" })
-    end
+      settings = config.global_settings
 
-    it "returns empty hash when not specified" do
-      config_path = create_test_config({})
-
-      config = described_class.new(config_path)
-
-      expect(config.passbolt_integration).to eq({})
-    end
-  end
-
-  describe "#auto_init?" do
-    it "returns true when auto_init is enabled" do
-      config_data = { "auto_init" => true }
-      config_path = create_test_config(config_data)
-
-      config = described_class.new(config_path)
-
-      expect(config.auto_init?).to be true
-    end
-
-    it "returns false when auto_init is disabled" do
-      config_data = { "auto_init" => false }
-      config_path = create_test_config(config_data)
-
-      config = described_class.new(config_path)
-
-      expect(config.auto_init?).to be false
-    end
-
-    it "returns false by default when not specified" do
-      config_path = create_test_config({})
-
-      config = described_class.new(config_path)
-
-      expect(config.auto_init?).to be false
-    end
-  end
-
-  describe "#log_file" do
-    it "returns the log file path when specified" do
-      config_data = { "log_file" => "/custom/path/ruborg.log" }
-      config_path = create_test_config(config_data)
-
-      config = described_class.new(config_path)
-
-      expect(config.log_file).to eq("/custom/path/ruborg.log")
-    end
-
-    it "returns nil when not specified" do
-      config_path = create_test_config({})
-
-      config = described_class.new(config_path)
-
-      expect(config.log_file).to be_nil
+      expect(settings).to be_a(Hash)
     end
   end
 end

@@ -7,11 +7,21 @@ RSpec.describe "Auto-initialization feature", :borg do
   let(:passphrase) { "test-passphrase" }
   let(:config_data) do
     {
-      "repository" => repo_path,
-      "backup_paths" => [File.join(tmpdir, "source")],
       "compression" => "lz4",
       "auto_init" => true,
-      "passbolt" => { "resource_id" => "test-id" }
+      "passbolt" => { "resource_id" => "test-id" },
+      "repositories" => [
+        {
+          "name" => "test-repo",
+          "path" => repo_path,
+          "sources" => [
+            {
+              "name" => "main",
+              "paths" => [File.join(tmpdir, "source")]
+            }
+          ]
+        }
+      ]
     }
   end
   let(:config_file) { create_test_config(config_data) }
@@ -32,9 +42,9 @@ RSpec.describe "Auto-initialization feature", :borg do
     it "automatically initializes repository if it doesn't exist" do
       expect(File.exist?(File.join(repo_path, "config"))).to be false
 
-      expect {
-        Ruborg::CLI.start(["backup", "--config", config_file])
-      }.to output(/Repository auto-initialized/).to_stdout
+      expect do
+        Ruborg::CLI.start(["backup", "--config", config_file, "--repository", "test-repo"])
+      end.to output(/Repository auto-initialized/).to_stdout
 
       expect(File.exist?(File.join(repo_path, "config"))).to be true
     end
@@ -44,9 +54,9 @@ RSpec.describe "Auto-initialization feature", :borg do
       repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
       repo.create
 
-      expect {
-        Ruborg::CLI.start(["backup", "--config", config_file])
-      }.not_to output(/auto-initialized/).to_stdout
+      expect do
+        Ruborg::CLI.start(["backup", "--config", config_file, "--repository", "test-repo"])
+      end.not_to output(/auto-initialized/).to_stdout
     end
   end
 
@@ -54,9 +64,9 @@ RSpec.describe "Auto-initialization feature", :borg do
     it "automatically initializes repository if it doesn't exist" do
       expect(File.exist?(File.join(repo_path, "config"))).to be false
 
-      expect {
-        Ruborg::CLI.start(["list", "--config", config_file])
-      }.to output(/Repository auto-initialized/).to_stdout
+      expect do
+        Ruborg::CLI.start(["list", "--config", config_file, "--repository", "test-repo"])
+      end.to output(/Repository auto-initialized/).to_stdout
 
       expect(File.exist?(File.join(repo_path, "config"))).to be true
     end
@@ -66,9 +76,9 @@ RSpec.describe "Auto-initialization feature", :borg do
     it "automatically initializes repository if it doesn't exist" do
       expect(File.exist?(File.join(repo_path, "config"))).to be false
 
-      expect {
-        Ruborg::CLI.start(["info", "--config", config_file])
-      }.to output(/Repository auto-initialized/).to_stdout
+      expect do
+        Ruborg::CLI.start(["info", "--config", config_file, "--repository", "test-repo"])
+      end.to output(/Repository auto-initialized/).to_stdout
 
       expect(File.exist?(File.join(repo_path, "config"))).to be true
     end
@@ -77,19 +87,29 @@ RSpec.describe "Auto-initialization feature", :borg do
   describe "without auto_init enabled" do
     let(:config_data_no_auto) do
       {
-        "repository" => repo_path,
-        "backup_paths" => [File.join(tmpdir, "source")],
         "compression" => "lz4",
         "auto_init" => false,
-        "passbolt" => { "resource_id" => "test-id" }
+        "passbolt" => { "resource_id" => "test-id" },
+        "repositories" => [
+          {
+            "name" => "test-repo",
+            "path" => repo_path,
+            "sources" => [
+              {
+                "name" => "main",
+                "paths" => [File.join(tmpdir, "source")]
+              }
+            ]
+          }
+        ]
       }
     end
     let(:config_file_no_auto) { create_test_config(config_data_no_auto) }
 
     it "does not auto-initialize when disabled" do
-      expect {
-        Ruborg::CLI.start(["backup", "--config", config_file_no_auto])
-      }.to raise_error(SystemExit)
+      expect do
+        Ruborg::CLI.start(["backup", "--config", config_file_no_auto, "--repository", "test-repo"])
+      end.to raise_error(SystemExit)
 
       expect(File.exist?(File.join(repo_path, "config"))).to be false
     end

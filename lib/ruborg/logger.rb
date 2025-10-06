@@ -13,8 +13,8 @@ module Ruborg
       validate_and_ensure_log_directory
       @logger = Logger.new(@log_file, "daily")
       @logger.level = Logger::INFO
-      @logger.formatter = proc do |severity, datetime, progname, msg|
-        "[#{datetime.strftime('%Y-%m-%d %H:%M:%S')}] #{severity}: #{msg}\n"
+      @logger.formatter = proc do |severity, datetime, _progname, msg|
+        "[#{datetime.strftime("%Y-%m-%d %H:%M:%S")}] #{severity}: #{msg}\n"
       end
     end
 
@@ -41,8 +41,7 @@ module Ruborg
     end
 
     def log_directory
-      dir = File.expand_path("~/.ruborg/logs")
-      dir
+      File.expand_path("~/.ruborg/logs")
     end
 
     def validate_and_ensure_log_directory

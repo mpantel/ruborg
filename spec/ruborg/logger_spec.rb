@@ -15,7 +15,7 @@ RSpec.describe Ruborg::RuborgLogger do
     it "uses default log file when not specified" do
       logger = described_class.new
 
-      expect(logger.instance_variable_get(:@log_file)).to match(/\.ruborg\/logs\/ruborg\.log$/)
+      expect(logger.instance_variable_get(:@log_file)).to match(%r{\.ruborg/logs/ruborg\.log$})
     end
 
     it "creates log directory if it doesn't exist" do

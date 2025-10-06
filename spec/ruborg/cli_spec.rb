@@ -7,9 +7,19 @@ RSpec.describe Ruborg::CLI do
   let(:passphrase) { "test-pass" }
   let(:config_data) do
     {
-      "repository" => repo_path,
-      "backup_paths" => [File.join(tmpdir, "backup_source")],
-      "compression" => "lz4"
+      "compression" => "lz4",
+      "repositories" => [
+        {
+          "name" => "test-repo",
+          "path" => repo_path,
+          "sources" => [
+            {
+              "name" => "main",
+              "paths" => [File.join(tmpdir, "backup_source")]
+            }
+          ]
+        }
+      ]
     }
   end
   let(:config_file) { create_test_config(config_data) }
@@ -23,27 +33,27 @@ RSpec.describe Ruborg::CLI do
 
   describe "init command", :borg do
     it "initializes a repository with passphrase" do
-      expect {
+      expect do
         described_class.start(["init", repo_path, "--passphrase", passphrase])
-      }.to output(/Repository initialized/).to_stdout
+      end.to output(/Repository initialized/).to_stdout
     end
 
     it "initializes a repository with passbolt" do
       allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
       allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
 
-      expect {
+      expect do
         described_class.start(["init", repo_path, "--passbolt-id", "test-uuid"])
-      }.to output(/Repository initialized/).to_stdout
+      end.to output(/Repository initialized/).to_stdout
     end
 
     it "exits with error when borg command fails" do
       # Use invalid path to trigger failure
       invalid_path = "/invalid/path/that/does/not/exist"
 
-      expect {
+      expect do
         described_class.start(["init", invalid_path, "--passphrase", passphrase])
-      }.to raise_error(SystemExit)
+      end.to raise_error(SystemExit)
     end
   end
 
@@ -67,21 +77,21 @@ RSpec.describe Ruborg::CLI do
     end
 
     it "creates a backup using config file" do
-      expect {
-        described_class.start(["backup", "--config", config_file])
-      }.to output(/Backup created successfully/).to_stdout
+      expect do
+        described_class.start(["backup", "--config", config_file, "--repository", "test-repo"])
+      end.to output(/Backup created/).to_stdout
     end
 
     it "creates a backup with custom name" do
-      expect {
-        described_class.start(["backup", "--config", config_file, "--name", "custom-backup"])
-      }.to output(/Backup created successfully/).to_stdout
+      expect do
+        described_class.start(["backup", "--config", config_file, "--repository", "test-repo", "--name", "custom-backup"])
+      end.to output(/Backup created/).to_stdout
     end
 
     it "removes source files when --remove-source is specified" do
       source_file = File.join(tmpdir, "backup_source", "test.txt")
 
-      described_class.start(["backup", "--config", config_file, "--remove-source"])
+      described_class.start(["backup", "--config", config_file, "--repository", "test-repo", "--remove-source"])
 
       expect(File.exist?(source_file)).to be false
     end
@@ -102,9 +112,9 @@ RSpec.describe Ruborg::CLI do
     end
 
     it "lists archives in repository" do
-      expect {
-        described_class.start(["list", "--config", config_file])
-      }.not_to raise_error
+      expect do
+        described_class.start(["list", "--config", config_file, "--repository", "test-repo"])
+      end.not_to raise_error
     end
   end
 
@@ -120,8 +130,11 @@ RSpec.describe Ruborg::CLI do
       FileUtils.mkdir_p(File.join(tmpdir, "backup_source"))
       File.write(File.join(tmpdir, "backup_source", "restore_test.txt"), "restore content")
 
-      config = Ruborg::Config.new(config_file)
-      backup = Ruborg::Backup.new(repo, config: config)
+      # Create backup using Backup class with mock config
+      backup_config = double("BackupConfig")
+      allow(backup_config).to receive_messages(backup_paths: [File.join(tmpdir, "backup_source")], exclude_patterns: [], compression: "lz4", encryption_mode: "repokey")
+
+      backup = Ruborg::Backup.new(repo, config: backup_config)
       backup.create(name: archive_name)
 
       # Update config to include passphrase via passbolt
@@ -134,17 +147,17 @@ RSpec.describe Ruborg::CLI do
     end
 
     it "restores entire archive to destination" do
-      expect {
-        described_class.start(["restore", archive_name, "--config", config_file, "--destination", dest_dir])
-      }.to output(/Archive restored/).to_stdout
+      expect do
+        described_class.start(["restore", archive_name, "--config", config_file, "--repository", "test-repo", "--destination", dest_dir])
+      end.to output(/Archive restored/).to_stdout
     end
 
     it "restores specific file from archive" do
       specific_file = File.join(tmpdir, "backup_source", "restore_test.txt")
 
-      expect {
-        described_class.start(["restore", archive_name, "--config", config_file, "--destination", dest_dir, "--path", specific_file])
-      }.to output(/Restored.*restore_test\.txt/).to_stdout
+      expect do
+        described_class.start(["restore", archive_name, "--config", config_file, "--repository", "test-repo", "--destination", dest_dir, "--path", specific_file])
+      end.to output(/Restored.*restore_test\.txt/).to_stdout
     end
   end
 
@@ -163,17 +176,17 @@ RSpec.describe Ruborg::CLI do
     end
 
     it "shows repository information" do
-      expect {
-        described_class.start(["info", "--config", config_file])
-      }.not_to raise_error
+      expect do
+        described_class.start(["info", "--config", config_file, "--repository", "test-repo"])
+      end.not_to raise_error
     end
   end
 
   describe "error handling" do
     it "exits with error message when config file not found" do
-      expect {
+      expect do
         described_class.start(["backup", "--config", "/non/existent.yml"])
-      }.to raise_error(SystemExit)
+      end.to raise_error(SystemExit)
     end
   end
 end

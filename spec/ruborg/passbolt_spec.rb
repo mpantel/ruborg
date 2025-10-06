@@ -7,6 +7,7 @@ RSpec.describe Ruborg::Passbolt do
 
   describe "#initialize" do
     it "accepts a resource_id parameter" do
+      allow_any_instance_of(described_class).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
       passbolt = described_class.new(resource_id: resource_id)
 
       expect(passbolt.instance_variable_get(:@resource_id)).to eq(resource_id)
@@ -21,9 +22,9 @@ RSpec.describe Ruborg::Passbolt do
     it "raises error if passbolt CLI is not installed" do
       allow_any_instance_of(described_class).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(false)
 
-      expect {
+      expect do
         described_class.new(resource_id: resource_id)
-      }.to raise_error(Ruborg::PassboltError, /Passbolt CLI not found/)
+      end.to raise_error(Ruborg::PassboltError, /Passbolt CLI not found/)
     end
   end
 
@@ -37,9 +38,9 @@ RSpec.describe Ruborg::Passbolt do
     it "raises error if resource_id is not configured" do
       passbolt_without_id = described_class.new(resource_id: nil)
 
-      expect {
+      expect do
         passbolt_without_id.get_password
-      }.to raise_error(Ruborg::PassboltError, /Resource ID not configured/)
+      end.to raise_error(Ruborg::PassboltError, /Resource ID not configured/)
     end
 
     it "executes passbolt get resource command with correct parameters" do
@@ -72,18 +73,18 @@ RSpec.describe Ruborg::Passbolt do
     it "raises error when passbolt command fails" do
       allow(passbolt).to receive(:execute_command).and_return(["", false])
 
-      expect {
+      expect do
         passbolt.get_password
-      }.to raise_error(Ruborg::PassboltError, /Failed to retrieve password/)
+      end.to raise_error(Ruborg::PassboltError, /Failed to retrieve password/)
     end
 
     it "raises error when JSON parsing fails" do
       invalid_json = "not valid json"
       allow(passbolt).to receive(:execute_command).and_return([invalid_json, true])
 
-      expect {
+      expect do
         passbolt.get_password
-      }.to raise_error(Ruborg::PassboltError, /Failed to parse Passbolt response/)
+      end.to raise_error(Ruborg::PassboltError, /Failed to parse Passbolt response/)
     end
   end
 end

@@ -1,0 +1,175 @@
+# RuboCop configuration for Ruborg
+
+plugins:
+  - rubocop-rspec
+
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+    - 'bin/*'
+
+# Disable documentation requirement
+Style/Documentation:
+  Enabled: false
+
+# Allow development dependencies in gemspec
+Gemspec/DevelopmentDependencies:
+  Enabled: false
+
+# Allow longer lines in some cases
+Layout/LineLength:
+  Max: 120
+  AllowedPatterns:
+    - '\s+# '
+    - '^\s*#'
+  Exclude:
+    - 'spec/**/*'
+
+# Allow longer methods in specs
+Metrics/MethodLength:
+  Max: 25
+  Exclude:
+    - 'spec/**/*'
+    - 'lib/ruborg/cli.rb'  # CLI commands can be longer
+
+# Allow longer blocks in specs
+Metrics/BlockLength:
+  Exclude:
+    - 'spec/**/*'
+    - '*.gemspec'
+
+# Allow more complex methods
+Metrics/AbcSize:
+  Max: 30
+  Exclude:
+    - 'spec/**/*'
+    - 'lib/ruborg/cli.rb'  # CLI commands can be more complex
+
+# Allow reasonable cyclomatic complexity
+Metrics/CyclomaticComplexity:
+  Max: 15
+  Exclude:
+    - 'lib/ruborg/cli.rb'  # CLI commands can have more branches
+
+# Allow reasonable perceived complexity
+Metrics/PerceivedComplexity:
+  Max: 15
+  Exclude:
+    - 'lib/ruborg/cli.rb'  # CLI commands can be more complex
+
+# Allow larger classes for CLI and main library classes
+Metrics/ClassLength:
+  Max: 350
+  Exclude:
+    - 'spec/**/*'
+
+# Prefer modern hash syntax
+Style/HashSyntax:
+  EnforcedStyle: ruby19
+
+# Prefer double quotes for consistency
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+# Allow both single and double quotes in specs
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes
+
+# Prefer symbols as hash keys
+Style/SymbolArray:
+  EnforcedStyle: brackets
+
+# Allow compact module/class definition
+Style/ClassAndModuleChildren:
+  Enabled: false
+
+# Allow both proc and lambda
+Style/Lambda:
+  Enabled: false
+
+# Allow if/unless modifiers
+Style/IfUnlessModifier:
+  Enabled: true
+
+# Prefer raise over fail
+Style/SignalException:
+  EnforcedStyle: only_raise
+
+# Allow compact empty methods
+Style/EmptyMethod:
+  EnforcedStyle: compact
+
+# Prefer explicit returns in some cases
+Style/RedundantReturn:
+  Enabled: false
+
+# Don't enforce attr_reader for method definitions in blocks
+Style/TrivialAccessors:
+  Enabled: false
+
+# RSpec specific cops
+RSpec/ExampleLength:
+  Max: 25
+
+RSpec/MultipleExpectations:
+  Max: 5
+
+RSpec/NestedGroups:
+  Max: 5
+
+RSpec/DescribeClass:
+  Exclude:
+    - 'spec/integration/**/*'
+    - 'spec/ruborg/auto_init_spec.rb'
+    - 'spec/ruborg/backup_integration_spec.rb'
+    - 'spec/ruborg/log_config_spec.rb'
+    - 'spec/ruborg/per_file_backup_spec.rb'
+    - 'spec/ruborg/security_spec.rb'
+
+# Allow any_instance_of for testing
+RSpec/AnyInstance:
+  Enabled: false
+
+# Allow both expect and allow for message expectations
+RSpec/MessageSpies:
+  Enabled: false
+
+# Allow both expect and allow
+RSpec/StubbedMock:
+  Enabled: false
+
+# Allow normal doubles in specs
+RSpec/VerifiedDoubles:
+  Enabled: false
+
+# Allow multiple memoized helpers
+RSpec/MultipleMemoizedHelpers:
+  Enabled: false
+
+# Allow backticks for command execution
+Style/CommandLiteral:
+  Enabled: false
+
+# Allow safe navigation chains
+Style/SafeNavigationChainLength:
+  Enabled: false
+
+# Allow useless constant scoping for clarity
+Lint/UselessConstantScoping:
+  Enabled: false
+
+# Allow get_ prefix in method names for clarity
+Naming/AccessorMethodName:
+  Enabled: false
+
+# Allow predicate methods without ? suffix
+Naming/PredicateMethod:
+  Enabled: false
+
+# Allow any spec file path format
+RSpec/SpecFilePathFormat:
+  Enabled: false

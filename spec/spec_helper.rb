@@ -18,12 +18,14 @@ RSpec.configure do |config|
 
   config.shared_context_metadata_behavior = :apply_to_host_groups
   config.filter_run_when_matching :focus
-  config.example_status_persistence_file_path = "spec/examples.txt"
+  # Disabled to ensure all tests run consistently regardless of previous results
+  # config.example_status_persistence_file_path = "spec/examples.txt"
   config.disable_monkey_patching!
   config.warnings = true
 
   config.default_formatter = "doc" if config.files_to_run.one?
 
+  # Random order with seed for reproducibility
   config.order = :random
   Kernel.srand config.seed
 
@@ -34,7 +36,7 @@ RSpec.configure do |config|
   end
 
   # Temp directory for each test
-  config.around(:each) do |example|
+  config.around do |example|
     Dir.mktmpdir do |tmpdir|
       @tmpdir = tmpdir
       example.run
@@ -59,5 +61,26 @@ RSpec.configure do |config|
     config_path = File.join(tmpdir, "test_config.yml")
     File.write(config_path, config_hash.to_yaml)
     config_path
+  end
+
+  # Helper to create repository test config
+  def create_repository_config(repo_path, sources_paths, options = {})
+    config_hash = {
+      "repositories" => [
+        {
+          "name" => options[:name] || "test-repo",
+          "path" => repo_path,
+          "sources" => [
+            {
+              "name" => "main",
+              "paths" => sources_paths,
+              "exclude" => options[:exclude] || []
+            }
+          ]
+        }.merge(options.slice(:passbolt, :compression, :encryption, :auto_init, :borg_options))
+      ]
+    }.merge(options.slice(:log_file))
+
+    create_test_config(config_hash)
   end
 end

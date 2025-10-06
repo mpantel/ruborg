@@ -24,14 +24,14 @@ module Ruborg
     private
 
     def check_passbolt_cli
-      unless system("which passbolt > /dev/null 2>&1")
-        raise PassboltError, "Passbolt CLI not found. Please install it first."
-      end
+      return if system("which passbolt > /dev/null 2>&1")
+
+      raise PassboltError, "Passbolt CLI not found. Please install it first."
     end
 
     def execute_command(cmd)
       require "open3"
-      stdout, stderr, status = Open3.capture3(*cmd)
+      stdout, _, status = Open3.capture3(*cmd)
       [stdout, status.success?]
     end
 

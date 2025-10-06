@@ -2,12 +2,12 @@
 
 require "spec_helper"
 
-RSpec.describe "Multi-repository configuration", :borg do
+RSpec.describe "Backup integration with repositories", :borg do
   let(:repo1_path) { File.join(tmpdir, "repo1") }
   let(:repo2_path) { File.join(tmpdir, "repo2") }
   let(:passphrase) { "test-pass" }
 
-  let(:multi_repo_config) do
+  let(:config_data) do
     {
       "compression" => "lz4",
       "encryption" => "repokey",
@@ -45,7 +45,7 @@ RSpec.describe "Multi-repository configuration", :borg do
     }
   end
 
-  let(:config_file) { create_test_config(multi_repo_config) }
+  let(:config_file) { create_test_config(config_data) }
 
   before do
     allow_any_instance_of(Ruborg::RuborgLogger).to receive(:info)
@@ -64,17 +64,11 @@ RSpec.describe "Multi-repository configuration", :borg do
   end
 
   describe "Config class" do
-    it "detects multi-repo format" do
-      config = Ruborg::Config.new(config_file)
-
-      expect(config.multi_repo?).to be true
-    end
-
     it "returns all repositories" do
       config = Ruborg::Config.new(config_file)
 
       expect(config.repositories.size).to eq(2)
-      expect(config.repository_names).to eq(["documents", "databases"])
+      expect(config.repository_names).to eq(%w[documents databases])
     end
 
     it "gets specific repository by name" do
@@ -97,24 +91,24 @@ RSpec.describe "Multi-repository configuration", :borg do
   end
 
   describe "backup command" do
-    it "requires --repository or --all for multi-repo config" do
-      expect {
+    it "requires --repository or --all" do
+      expect do
         Ruborg::CLI.start(["backup", "--config", config_file])
-      }.to raise_error(SystemExit)
+      end.to raise_error(SystemExit)
     end
 
     it "backs up specific repository with --repository option" do
-      expect {
+      expect do
         Ruborg::CLI.start(["backup", "--config", config_file, "--repository", "documents"])
-      }.to output(/Backing up repository: documents/).to_stdout
+      end.to output(/Backing up repository: documents/).to_stdout
 
       expect(File.exist?(File.join(repo1_path, "config"))).to be true
     end
 
     it "backs up all repositories with --all option" do
-      expect {
+      expect do
         Ruborg::CLI.start(["backup", "--config", config_file, "--all"])
-      }.to output(/Backing up repository: documents.*Backing up repository: databases/m).to_stdout
+      end.to output(/Backing up repository: documents.*Backing up repository: databases/m).to_stdout
 
       expect(File.exist?(File.join(repo1_path, "config"))).to be true
       expect(File.exist?(File.join(repo2_path, "config"))).to be true
@@ -131,8 +125,8 @@ RSpec.describe "Multi-repository configuration", :borg do
 
   describe "BackupConfig wrapper" do
     it "aggregates paths from all sources" do
-      repo_config = multi_repo_config["repositories"][0]
-      backup_config = Ruborg::CLI::BackupConfig.new(repo_config, multi_repo_config)
+      repo_config = config_data["repositories"][0]
+      backup_config = Ruborg::CLI::BackupConfig.new(repo_config, config_data)
 
       paths = backup_config.backup_paths
 
@@ -141,8 +135,8 @@ RSpec.describe "Multi-repository configuration", :borg do
     end
 
     it "combines exclude patterns from sources" do
-      repo_config = multi_repo_config["repositories"][0]
-      backup_config = Ruborg::CLI::BackupConfig.new(repo_config, multi_repo_config)
+      repo_config = config_data["repositories"][0]
+      backup_config = Ruborg::CLI::BackupConfig.new(repo_config, config_data)
 
       patterns = backup_config.exclude_patterns
 

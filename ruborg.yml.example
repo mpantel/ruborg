@@ -1,28 +1,142 @@
-# Ruborg configuration example
+# Ruborg Example Configuration
+#
+# To use this configuration:
+#   cp ruborg.yml.example ruborg.yml
+#   chmod 600 ruborg.yml
+#   # Edit ruborg.yml with your settings
 
-# Repository path
-repository: /path/to/borg/repository
+# Global settings (applied to all repositories unless overridden)
+compression: lz4          # Options: lz4 (fast), zstd (balanced), lzma (high compression), none
+encryption: repokey       # Options: repokey, keyfile, none (NOT recommended)
+auto_init: true           # Automatically initialize repositories on first use
+auto_prune: true          # Automatically prune old backups after each backup
+log_file: ~/.ruborg/logs/ruborg.log  # Log file path (optional)
 
-# Paths to backup
-backup_paths:
-  - /home/user/documents
-  - /home/user/projects
-  - /etc
+# Custom Borg executable path (optional)
+# Use this if borg is not in PATH or you want to use a specific version
+# borg_path: /usr/local/bin/borg
 
-# Exclude patterns
-exclude_patterns:
-  - "*.tmp"
-  - "*.log"
-  - "*/.cache/*"
-  - "*/node_modules/*"
-  - "*/.git/*"
-
-# Compression algorithm (lz4, zstd, zlib, lzma, none)
-compression: lz4
-
-# Encryption mode (repokey, keyfile, none)
-encryption: repokey
-
-# Passbolt integration (optional)
+# Global Passbolt integration (optional)
+# Store passphrases securely in Passbolt instead of config files
 passbolt:
-  resource_id: "your-passbolt-resource-uuid"
+  resource_id: "your-global-passbolt-resource-id"
+
+# Borg environment options (optional)
+# Configure security settings for Borg operations
+borg_options:
+  allow_relocated_repo: false      # Reject repos that have been moved (recommended: false)
+  allow_unencrypted_repo: false    # Reject unencrypted repos (recommended: false)
+
+# Global retention policy (can be overridden per repository)
+# Specify how many backups to keep
+retention:
+  keep_hourly: 24      # Keep 24 hourly backups
+  keep_daily: 7        # Keep 7 daily backups
+  keep_weekly: 4       # Keep 4 weekly backups
+  keep_monthly: 6      # Keep 6 monthly backups
+  keep_yearly: 1       # Keep 1 yearly backup
+  # Alternative time-based retention:
+  # keep_within: "7d"  # Keep all backups within 7 days
+  # keep_last: 30      # Keep last 30 backups
+
+# Multiple repositories
+repositories:
+  # Repository 1: Documents backup
+  - name: documents
+    description: "Personal and work documents backup"
+    path: /mnt/backup/borg-documents
+    sources:
+      - name: home-docs
+        paths:
+          - /home/user/Documents
+          - /home/user/Desktop
+        exclude:
+          - "*.tmp"
+          - "*.cache"
+          - ".git"
+      - name: work-docs
+        paths:
+          - /home/user/Work
+        exclude:
+          - "*.log"
+          - "node_modules"
+
+  # Repository 2: Database backups with per-file mode
+  - name: databases
+    description: "MySQL and PostgreSQL database dumps"
+    path: /mnt/backup/borg-databases
+    retention_mode: per_file  # Each file gets its own archive
+    # Repository-specific passbolt (overrides global)
+    passbolt:
+      resource_id: "database-backup-passbolt-id"
+    # Repository-specific retention policy
+    retention:
+      keep_files_modified_within: "30d"  # For per-file mode: keep files modified in last 30 days
+      keep_daily: 14
+    sources:
+      - name: mysql-dumps
+        paths:
+          - /var/backups/mysql
+      - name: postgres-dumps
+        paths:
+          - /var/backups/postgresql
+
+  # Repository 3: System configuration backups
+  - name: system-config
+    description: "System and application configuration files"
+    path: /mnt/backup/borg-config
+    compression: zstd         # Repository-specific compression (overrides global)
+    encryption: keyfile       # Repository-specific encryption (overrides global)
+    auto_prune: false         # Disable auto-pruning for this repo
+    sources:
+      - name: etc-configs
+        paths:
+          - /etc/nginx
+          - /etc/systemd/system
+          - /etc/fstab
+      - name: app-configs
+        paths:
+          - /home/user/.ssh/config
+          - /home/user/.gitconfig
+        exclude:
+          - "*.key"           # Don't backup private keys
+          - "*.pem"
+
+  # Repository 4: Media files (minimal compression, longer retention)
+  - name: media
+    description: "Photos and videos"
+    path: /mnt/backup/borg-media
+    compression: none         # Media files are already compressed
+    retention:
+      keep_monthly: 12        # Keep 12 monthly backups
+      keep_yearly: 5          # Keep 5 yearly backups
+    sources:
+      - name: photos
+        paths:
+          - /home/user/Pictures
+        exclude:
+          - "*.thumbs"
+          - "Thumbs.db"
+
+# Usage Examples:
+#
+# Backup all repositories:
+#   ruborg backup --all
+#
+# Backup specific repository:
+#   ruborg backup --repository documents
+#
+# List archives in a repository:
+#   ruborg list --repository documents
+#
+# Restore an archive:
+#   ruborg restore archive-name --repository documents --destination /restore/path
+#
+# Check repository integrity:
+#   ruborg check --repository documents --verify-data
+#
+# Initialize a new repository manually:
+#   ruborg init /path/to/repository --passbolt-id "your-passbolt-id"
+#
+# Get repository information:
+#   ruborg info --repository documents

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-10-06
+
+### Added
+- Borg executable validation: verifies `borg_path` points to actual Borg binary
+- bundler-audit integration for dependency vulnerability scanning
+- RuboCop with rubocop-rspec for code quality enforcement
+- Enhanced pruning logs showing retention mode (standard vs per-file)
+- Comprehensive development workflow documentation in CLAUDE.md
+- Example configuration file: `ruborg.yml.example`
+
+### Security
+- **CRITICAL**: Fixed remaining command injection vulnerabilities in repository.rb
+  - Replaced backtick execution with Open3.capture3 in `list_archives_with_metadata`
+  - Replaced backtick execution with Open3.capture3 in `get_file_mtime_from_archive`
+  - Replaced backtick execution with Open3.capture2e in `execute_version_command`
+- Added borg_path validation to prevent execution of arbitrary binaries
+- Removed unused `env_to_cmd_prefix` helper method (no longer needed with Open3)
+- Updated SECURITY.md with new security features and best practices
+- Added config file permission requirements (chmod 600) to documentation
+- Zero known vulnerabilities in dependencies (verified with bundler-audit)
+
+### Changed
+- All command execution now uses Open3 methods (no backticks anywhere)
+- Pruning logs now include retention mode details
+- Enhanced security documentation with detailed config file protection guidelines
+
 ## [0.3.1] - 2025-10-05
 
 ### Added
