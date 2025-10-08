@@ -87,4 +87,68 @@ RSpec.describe Ruborg::Passbolt do
       end.to raise_error(Ruborg::PassboltError, /Failed to parse Passbolt response/)
     end
   end
+
+  describe "logging functionality" do
+    let(:logger) { instance_double(Ruborg::RuborgLogger) }
+
+    before do
+      allow(logger).to receive(:info)
+      allow(logger).to receive(:warn)
+      allow(logger).to receive(:error)
+      allow(logger).to receive(:debug)
+      allow_any_instance_of(described_class).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+    end
+
+    describe "password retrieval logging" do
+      it "logs successful password retrieval" do
+        passbolt = described_class.new(resource_id: resource_id, logger: logger)
+        json_response = '{"password": "secret-password"}'
+        allow(passbolt).to receive(:execute_command).and_return([json_response, true])
+
+        expect(logger).to receive(:info).with(/Retrieving password from Passbolt \(resource_id: #{resource_id}\)/)
+        expect(logger).to receive(:info).with(/Successfully retrieved password from Passbolt/)
+
+        passbolt.get_password
+      end
+
+      it "logs error on password retrieval failure" do
+        passbolt = described_class.new(resource_id: resource_id, logger: logger)
+        allow(passbolt).to receive(:execute_command).and_return(["", false])
+
+        expect(logger).to receive(:info).with(/Retrieving password from Passbolt/)
+        expect(logger).to receive(:error).with(/Failed to retrieve password from Passbolt for resource #{resource_id}/)
+
+        expect do
+          passbolt.get_password
+        end.to raise_error(Ruborg::PassboltError)
+      end
+
+      it "does not log the actual password" do
+        passbolt = described_class.new(resource_id: resource_id, logger: logger)
+        json_response = '{"password": "super-secret-password"}'
+        allow(passbolt).to receive(:execute_command).and_return([json_response, true])
+
+        # Verify that the password itself is never logged
+        expect(logger).not_to receive(:info).with(/super-secret-password/)
+        expect(logger).not_to receive(:debug).with(/super-secret-password/)
+        expect(logger).not_to receive(:warn).with(/super-secret-password/)
+        expect(logger).not_to receive(:error).with(/super-secret-password/)
+
+        passbolt.get_password
+      end
+
+      it "logs resource_id but not password" do
+        passbolt = described_class.new(resource_id: resource_id, logger: logger)
+        json_response = '{"password": "should-not-appear-in-logs"}'
+        allow(passbolt).to receive(:execute_command).and_return([json_response, true])
+
+        # Should log resource_id
+        expect(logger).to receive(:info).with(/resource_id: #{resource_id}/)
+        # But never the password
+        expect(logger).not_to receive(:info).with(/should-not-appear-in-logs/)
+
+        passbolt.get_password
+      end
+    end
+  end
 end

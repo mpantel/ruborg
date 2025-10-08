@@ -3,4 +3,12 @@
 
 require_relative "../lib/ruborg"
 
-Ruborg::CLI.start(ARGV)
+begin
+  Ruborg::CLI.start(ARGV)
+rescue Ruborg::Error => e
+  warn "Error: #{e.message}"
+  exit 1
+rescue Interrupt
+  warn "\nInterrupted"
+  exit 130
+end

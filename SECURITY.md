@@ -66,6 +66,15 @@ Ruborg implements several security measures to protect your backup operations:
 - Integrated into development workflow
 - Run: `bundle exec bundle-audit check`
 
+### 13. Boolean Type Safety (Type Confusion Protection)
+- **Critical safety flag validation** for `allow_remove_source` configuration
+- Uses strict type checking (`is_a?(TrueClass)`) to prevent type confusion attacks
+- Rejects truthy values like strings `'true'`, `"false"`, integers `1`, or `"yes"`
+- Only boolean `true` enables dangerous operations like `--remove-source`
+- Provides detailed error messages showing actual type received vs expected
+- Prevents configuration errors that could lead to unintended data loss
+- **CWE-843 Mitigation**: Protects against type confusion vulnerabilities
+
 ## Security Best Practices
 
 ### When Using `--remove-source`
@@ -76,6 +85,16 @@ Ruborg implements several security measures to protect your backup operations:
 2. **Never use on symlinks** to critical system directories
 3. **Verify backups** before using this flag in production
 4. **Use absolute paths** in configuration to avoid ambiguity
+5. **Use boolean values** for `allow_remove_source` - NEVER use quoted strings:
+   ```yaml
+   # ✅ CORRECT
+   allow_remove_source: true
+
+   # ❌ WRONG - Will be rejected
+   allow_remove_source: 'true'
+   allow_remove_source: "true"
+   allow_remove_source: 1
+   ```
 
 ### Configuration File Security
 
@@ -144,6 +163,19 @@ We will respond within 48 hours and work with you to address the issue.
 
 ## Security Audit History
 
+- **v0.6.0** (2025-10-08): Configuration validation and type confusion protection
+  - **SECURITY FIX**: Implemented strict boolean type checking for `allow_remove_source`
+  - Prevents type confusion attacks (CWE-843) where string values bypass safety checks
+  - Added configuration validation command (`ruborg validate`) for proactive error detection
+  - Automatic schema validation on config load catches type errors early
+  - Added 10 comprehensive test cases for validation and type confusion scenarios
+  - Enhanced error messages to show actual type vs expected type
+  - Updated documentation with type safety warnings and examples
+
+- **v0.5.0** (2025-10-08): Hostname validation
+  - Added hostname validation feature (optional global or per-repository)
+  - Prevents accidental execution of backups on wrong machines
+
 - **v0.4.0** (2025-10-06): Complete command injection elimination
   - **CRITICAL**: Fixed all remaining command injection vulnerabilities in repository.rb
   - Replaced all backtick execution with Open3.capture3/capture2e methods
@@ -210,3 +242,5 @@ Before deploying ruborg in production:
 - [ ] Configure borg_options for your security requirements
 - [ ] Use default archive names or sanitized custom names only
 - [ ] Ensure backup paths don't contain empty or nil values
+- [ ] Use boolean `true` (not strings) for `allow_remove_source` configuration
+- [ ] Configure hostname validation for multi-server environments

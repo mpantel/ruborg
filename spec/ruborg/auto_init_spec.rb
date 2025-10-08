@@ -109,7 +109,7 @@ RSpec.describe "Auto-initialization feature", :borg do
     it "does not auto-initialize when disabled" do
       expect do
         Ruborg::CLI.start(["backup", "--config", config_file_no_auto, "--repository", "test-repo"])
-      end.to raise_error(SystemExit)
+      end.to raise_error(Ruborg::BorgError, /Repository does not exist/)
 
       expect(File.exist?(File.join(repo_path, "config"))).to be false
     end
