@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.6] - 2025-10-09
+
+### Fixed
+- **Filesystem Compatibility**: Gracefully handle filesystems that don't support chattr operations
+  - Network filesystems (NFS, CIFS/SMB) and non-Linux filesystems (NTFS, FAT, exFAT) often don't support Linux file attributes
+  - When chattr fails with "Operation not supported", log warning and continue with deletion
+  - Allows `--remove-source` to work on network shares and external drives
+  - Fixes error: "Cannot remove immutable file: ... Error: chattr: Operation not supported"
+
+### Technical Details
+- Detects "Operation not supported" error from chattr command (lib/ruborg/backup.rb:394)
+- Logs informative warning about filesystem limitations
+- Continues with file deletion (no longer raises error)
+- Test coverage: Added comprehensive test for unsupported filesystem scenario
+
 ## [0.7.5] - 2025-10-09
 
 ### Added

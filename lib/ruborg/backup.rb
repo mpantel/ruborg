@@ -390,6 +390,17 @@ module Ruborg
       _chattr_stdout, chattr_stderr, chattr_status = Open3.capture3("chattr", "-i", file_path)
 
       unless chattr_status.success?
+        # Check if filesystem doesn't support chattr (common with NFS, CIFS, NTFS, etc.)
+        if chattr_stderr.include?("Operation not supported")
+          @logger&.warn(
+            "Filesystem does not support chattr operations for #{file_path}. " \
+            "This is normal for network filesystems (NFS, CIFS) or non-Linux filesystems. " \
+            "Attempting deletion anyway."
+          )
+          return
+        end
+
+        # Other errors (like permission denied) should still raise
         @logger&.error("Failed to remove immutable attribute from #{file_path}: #{chattr_stderr.strip}")
         raise BorgError, "Cannot remove immutable file: #{file_path}. Error: #{chattr_stderr.strip}"
       end

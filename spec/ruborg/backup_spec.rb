@@ -703,6 +703,27 @@ RSpec.describe Ruborg::Backup do
 
         expect(File.exist?(test_file)).to be false
       end
+
+      it "handles filesystem that doesn't support chattr operations (NFS, CIFS, etc.)" do
+        File.write(test_file, "content")
+        real_path = File.realpath(test_file)
+
+        # Mock lsattr showing immutable flag
+        allow(Open3).to receive(:capture3).with("lsattr", real_path)
+                                          .and_return(["----i--------e----- #{real_path}\n", "", double(success?: true)])
+
+        # Mock chattr failure due to unsupported filesystem
+        allow(Open3).to receive(:capture3).with("chattr", "-i", real_path)
+                                          .and_return(["", "chattr: Operation not supported while setting flags on #{real_path}",
+                                                       double(success?: false)])
+
+        expect(logger).to receive(:warn).with(/Filesystem does not support chattr operations/)
+
+        # Should still delete the file (filesystem doesn't actually support immutable)
+        backup.send(:remove_single_file, test_file)
+
+        expect(File.exist?(test_file)).to be false
+      end
     end
 
     context "when lsattr/chattr commands are not available" do
