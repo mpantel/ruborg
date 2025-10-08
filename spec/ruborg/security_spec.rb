@@ -314,7 +314,7 @@ RSpec.describe "Security features" do
 
     it "uses Open3.capture3 for safe command execution" do
       expect(Open3).to receive(:capture3)
-        .with("passbolt", "get", "resource", "test-id", "--json")
+        .with("passbolt", "get", "resource", "--id", "test-id", "--json")
         .and_return(['{"password": "secret"}', "", double(success?: true)])
 
       passbolt.get_password

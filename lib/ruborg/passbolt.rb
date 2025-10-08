@@ -16,7 +16,7 @@ module Ruborg
 
       @logger&.info("Retrieving password from Passbolt (resource_id: #{@resource_id})")
 
-      cmd = ["passbolt", "get", "resource", @resource_id, "--json"]
+      cmd = ["passbolt", "get", "resource", "--id", @resource_id, "--json"]
       output, status = execute_command(cmd)
 
       unless status

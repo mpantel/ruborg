@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2025-10-08
+
+### Fixed
+- **Passbolt Integration**: Fixed Passbolt CLI command to include required `--id` flag
+  - Changed command from `passbolt get resource <id> --json` to `passbolt get resource --id <id> --json`
+  - Resolves "Error: required flag(s) 'id' not set" when retrieving passwords
+  - Updated security tests to verify correct command format
+
 ## [0.6.1] - 2025-10-08
 
 ### Added
