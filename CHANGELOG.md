@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2025-10-09
+
+### Fixed
+- **Passbolt Error Reporting**: Enhanced error handling for Passbolt CLI failures
+  - Now captures and logs stderr from Passbolt CLI commands
+  - Error messages include actual Passbolt CLI output for easier debugging
+  - Improved error logging with detailed failure context
+
+### Changed
+- **Passbolt Environment Variables**: Passbolt env vars now explicitly passed to subprocess
+  - Preserves `PASSBOLT_SERVER_ADDRESS`, `PASSBOLT_USER_PRIVATE_KEY_FILE`, `PASSBOLT_USER_PASSWORD`
+  - Also preserves `PASSBOLT_GPG_HOME` and `PASSBOLT_CONFIG`
+  - Ensures Passbolt CLI has access to required configuration when run by Ruborg
+
 ## [0.7.3] - 2025-10-09
 
 ### Changed

@@ -313,8 +313,9 @@ RSpec.describe "Security features" do
     end
 
     it "uses Open3.capture3 for safe command execution" do
+      # Now expects env hash as first parameter (can be empty)
       expect(Open3).to receive(:capture3)
-        .with("passbolt", "get", "resource", "--id", "test-id", "--json")
+        .with(hash_including({}), "passbolt", "get", "resource", "--id", "test-id", "--json")
         .and_return(['{"password": "secret"}', "", double(success?: true)])
 
       passbolt.get_password

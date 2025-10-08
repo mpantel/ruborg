@@ -17,11 +17,12 @@ module Ruborg
       @logger&.info("Retrieving password from Passbolt (resource_id: #{@resource_id})")
 
       cmd = ["passbolt", "get", "resource", "--id", @resource_id, "--json"]
-      output, status = execute_command(cmd)
+      output, status, error_msg = execute_command(cmd)
 
       unless status
         @logger&.error("Failed to retrieve password from Passbolt for resource #{@resource_id}")
-        raise PassboltError, "Failed to retrieve password from Passbolt"
+        error_detail = error_msg ? ": #{error_msg}" : ""
+        raise PassboltError, "Failed to retrieve password from Passbolt#{error_detail}"
       end
 
       @logger&.info("Successfully retrieved password from Passbolt")
@@ -38,8 +39,29 @@ module Ruborg
 
     def execute_command(cmd)
       require "open3"
-      stdout, _, status = Open3.capture3(*cmd)
-      [stdout, status.success?]
+
+      # Preserve Passbolt environment variables
+      env = {}
+      %w[
+        PASSBOLT_SERVER_ADDRESS
+        PASSBOLT_USER_PRIVATE_KEY_FILE
+        PASSBOLT_USER_PASSWORD
+        PASSBOLT_GPG_HOME
+        PASSBOLT_CONFIG
+      ].each do |var|
+        env[var] = ENV[var] if ENV[var]
+      end
+
+      stdout, stderr, status = Open3.capture3(env, *cmd)
+
+      # Log stderr if command failed
+      error_msg = nil
+      if !status.success? && !stderr.strip.empty?
+        error_msg = stderr.strip
+        @logger&.error("Passbolt CLI error: #{error_msg}")
+      end
+
+      [stdout, status.success?, error_msg]
     end
 
     def parse_password(json_output)
