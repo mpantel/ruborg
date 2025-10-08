@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.5] - 2025-10-09
+
+### Added
+- **Automatic Immutable Attribute Removal**: Ruborg now automatically detects and removes Linux immutable flags (`chattr +i`) when deleting files with `--remove-source`
+  - Checks files with `lsattr` before deletion
+  - Removes immutable flag with `chattr -i` if present
+  - Works for both single files (per-file mode) and directories (standard mode)
+  - Gracefully handles systems without lsattr/chattr (macOS, etc.)
+  - Logs all immutable attribute operations for audit trail
+
+### Technical Details
+- Per-file mode: Checks each file individually before deletion (lib/ruborg/backup.rb:365)
+- Standard mode: Recursively removes immutable from all files in directory (lib/ruborg/backup.rb:400-414)
+- Linux-only feature - silently skips on other platforms
+- Raises error if chattr command fails with proper error context
+- Immutable flag detection uses precise parsing of lsattr flags field (lib/ruborg/backup.rb:386-387)
+- Test coverage: 6 comprehensive specs covering all immutable file scenarios
+
 ## [0.7.4] - 2025-10-09
 
 ### Fixed

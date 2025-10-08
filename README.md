@@ -398,6 +398,25 @@ Error: Cannot use --remove-source: 'allow_remove_source' must be true (boolean).
 Current value: "true" (String). Set 'allow_remove_source: true' in configuration.
 ```
 
+**📌 Immutable File Handling (Linux)**
+
+Ruborg automatically detects and removes Linux immutable attributes (`chattr +i`) when deleting files with `--remove-source`:
+
+- **Automatic Detection**: Checks files with `lsattr` before deletion
+- **Automatic Removal**: Removes immutable flag with `chattr -i` if present
+- **Platform-Aware**: Gracefully skips on non-Linux systems (macOS, BSD, etc.)
+- **Comprehensive**: Works for both single files and directories (recursive)
+- **Logged**: All immutable attribute operations are logged for audit trail
+
+**Root Privileges**: If your files have immutable attributes, you'll need root privileges to remove them. Configure sudoers for ruborg:
+
+```bash
+# /etc/sudoers.d/ruborg
+michail ALL=(root) NOPASSWD: /usr/local/bin/ruborg
+```
+
+This allows running ruborg with sudo for file deletion without password prompts.
+
 ### List Archives
 
 ```bash

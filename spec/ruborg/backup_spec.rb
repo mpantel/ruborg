@@ -412,7 +412,7 @@ RSpec.describe Ruborg::Backup do
       end
 
       it "truncates long filename to fit 255 character limit" do
-        long_filename = "a" * 300 + ".sql"
+        long_filename = ("a" * 300) + ".sql"
         result = backup.send(:build_archive_name, "test", long_filename, path_hash, timestamp)
 
         expect(result.length).to eq(255)
@@ -433,7 +433,7 @@ RSpec.describe Ruborg::Backup do
       end
 
       it "preserves extension when truncating" do
-        long_filename = "very-long-database-name-with-many-tables-and-descriptive-information" * 3 + ".sql"
+        long_filename = ("very-long-database-name-with-many-tables-and-descriptive-information" * 3) + ".sql"
         result = backup.send(:build_archive_name, "databases", long_filename, path_hash, timestamp)
 
         expect(result.length).to be <= 255
@@ -466,7 +466,7 @@ RSpec.describe Ruborg::Backup do
         FileUtils.mkdir_p(source_dir)
 
         # Create file with very long name
-        long_filename = "very-long-database-backup-with-descriptive-name-" * 5 + ".sql"
+        long_filename = ("very-long-database-backup-with-descriptive-name-" * 5) + ".sql"
         create_test_file("source/#{long_filename}", "content")
 
         backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test")
@@ -480,7 +480,7 @@ RSpec.describe Ruborg::Backup do
         source_dir = File.join(tmpdir, "source")
         FileUtils.mkdir_p(source_dir)
 
-        long_filename = "a" * 250 + ".sql"
+        long_filename = ("a" * 250) + ".sql"
         create_test_file("source/#{long_filename}", "content")
 
         backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test")
@@ -580,7 +580,7 @@ RSpec.describe Ruborg::Backup do
 
       expect do
         backup.create
-      end.to output(/\[1\/2\] Backing up:/).to_stdout
+      end.to output(%r{\[1/2\] Backing up:}).to_stdout
     end
 
     it "shows completion message for per-file backup" do
@@ -611,6 +611,145 @@ RSpec.describe Ruborg::Backup do
       expect(logger).not_to receive(:info).with(/===/)
 
       backup.create
+    end
+  end
+
+  describe "Immutable file deletion", :borg do
+    let(:test_file) { File.join(tmpdir, "immutable_test.txt") }
+    let(:logger) { instance_double(Ruborg::RuborgLogger) }
+    let(:backup) { described_class.new(repository, config: backup_config, logger: logger) }
+
+    before do
+      allow(logger).to receive(:info)
+      allow(logger).to receive(:warn)
+      allow(logger).to receive(:error)
+    end
+
+    context "when lsattr/chattr commands are available" do
+      before do
+        allow(backup).to receive(:system).with("which lsattr > /dev/null 2>&1").and_return(true)
+      end
+
+      it "detects and removes immutable attribute before deleting file" do
+        File.write(test_file, "content")
+        real_path = File.realpath(test_file)
+
+        # Mock lsattr output showing immutable flag
+        allow(Open3).to receive(:capture3).with("lsattr", real_path)
+                                          .and_return(["----i--------e----- #{real_path}\n", "", double(success?: true)])
+
+        # Mock chattr removing immutable
+        allow(Open3).to receive(:capture3).with("chattr", "-i", real_path)
+                                          .and_return(["", "", double(success?: true)])
+
+        expect(logger).to receive(:info).with("Removing immutable attribute from: #{real_path}")
+        expect(logger).to receive(:info).with("Successfully removed immutable attribute from: #{real_path}")
+
+        backup.send(:remove_single_file, test_file)
+
+        expect(File.exist?(test_file)).to be false
+      end
+
+      it "skips files without immutable attribute" do
+        File.write(test_file, "content")
+        real_path = File.realpath(test_file)
+
+        # Mock lsattr output without immutable flag
+        allow(Open3).to receive(:capture3).with("lsattr", real_path)
+                                          .and_return(["--------------e----- #{real_path}\n", "", double(success?: true)])
+
+        # Should not call chattr
+        expect(Open3).not_to receive(:capture3).with("chattr", "-i", anything)
+
+        backup.send(:remove_single_file, test_file)
+
+        expect(File.exist?(test_file)).to be false
+      end
+
+      it "raises error if chattr fails to remove immutable attribute" do
+        File.write(test_file, "content")
+        real_path = File.realpath(test_file)
+
+        # Mock lsattr showing immutable
+        allow(Open3).to receive(:capture3).with("lsattr", real_path)
+                                          .and_return(["----i--------e----- #{real_path}\n", "", double(success?: true)])
+
+        # Mock chattr failure
+        allow(Open3).to receive(:capture3).with("chattr", "-i", real_path)
+                                          .and_return(["", "Operation not permitted", double(success?: false)])
+
+        expect(logger).to receive(:error).with(/Failed to remove immutable attribute/)
+
+        expect do
+          backup.send(:remove_single_file, test_file)
+        end.to raise_error(Ruborg::BorgError, /Cannot remove immutable file/)
+
+        # File should still exist since deletion failed
+        expect(File.exist?(test_file)).to be true
+      end
+
+      it "handles lsattr errors gracefully" do
+        File.write(test_file, "content")
+        real_path = File.realpath(test_file)
+
+        # Mock lsattr failure
+        allow(Open3).to receive(:capture3).with("lsattr", real_path)
+                                          .and_return(["", "lsattr: Operation not supported", double(success?: false)])
+
+        expect(logger).to receive(:warn).with(/Could not check attributes/)
+
+        # Should still delete the file (fallback behavior)
+        backup.send(:remove_single_file, test_file)
+
+        expect(File.exist?(test_file)).to be false
+      end
+    end
+
+    context "when lsattr/chattr commands are not available" do
+      before do
+        allow(backup).to receive(:system).with("which lsattr > /dev/null 2>&1").and_return(false)
+      end
+
+      it "deletes file without checking immutable attribute" do
+        File.write(test_file, "content")
+
+        # Should not call lsattr or chattr
+        expect(Open3).not_to receive(:capture3).with("lsattr", anything)
+        expect(Open3).not_to receive(:capture3).with("chattr", anything, anything)
+
+        backup.send(:remove_single_file, test_file)
+
+        expect(File.exist?(test_file)).to be false
+      end
+    end
+
+    context "when removing directory with immutable files" do
+      let(:test_dir) { File.join(tmpdir, "immutable_dir") }
+      let(:file1) { File.join(test_dir, "file1.txt") }
+      let(:file2) { File.join(test_dir, "file2.txt") }
+
+      before do
+        FileUtils.mkdir_p(test_dir)
+        File.write(file1, "content1")
+        File.write(file2, "content2")
+        allow(backup).to receive(:system).with("which lsattr > /dev/null 2>&1").and_return(true)
+      end
+
+      it "recursively removes immutable attributes from all files" do
+        # Mock lsattr to return immutable flag for any file path
+        allow(Open3).to receive(:capture3).with("lsattr", anything) do |_cmd, path|
+          ["----i--------e----- #{path}\n", "", double(success?: true)]
+        end
+
+        # Mock chattr for all
+        allow(Open3).to receive(:capture3).with("chattr", "-i", anything)
+                                          .and_return(["", "", double(success?: true)])
+
+        expect(logger).to receive(:info).with(/Removing immutable attribute/).at_least(3).times
+        expect(logger).to receive(:info).with(/Successfully removed immutable attribute/).at_least(3).times
+
+        backup.send(:remove_immutable_from_directory, test_dir)
+      end
     end
   end
 end

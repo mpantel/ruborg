@@ -19,7 +19,15 @@ Ruborg implements several security measures to protect your backup operations:
 - Refuses to delete system directories even when targeted via symlinks
 - Uses `FileUtils.rm_rf` with `secure: true` option
 
-### 4. Safe YAML Loading
+### 4. Immutable File Handling (Linux)
+- **Automatic Detection**: Checks for Linux immutable attributes (`lsattr`) before file deletion
+- **Safe Removal**: Removes immutable flag (`chattr -i`) only when necessary for deletion
+- **Platform-Aware**: Feature only active on Linux systems with lsattr/chattr commands available
+- **Error Handling**: Raises informative errors if immutable flag cannot be removed
+- **Audit Trail**: All immutable attribute operations are logged for security auditing
+- **Root Required**: Removing immutable attributes requires root privileges (use sudo with appropriate sudoers configuration)
+
+### 5. Safe YAML Loading
 - Uses `YAML.safe_load_file` to prevent arbitrary code execution
 - Rejects YAML files containing Ruby objects or other dangerous constructs
 - Only permits basic data types and Symbol class
@@ -228,6 +236,20 @@ If you discover a security vulnerability, please:
 We will respond within 48 hours and work with you to address the issue.
 
 ## Security Audit History
+
+- **v0.7.5** (2025-10-09): Immutable file handling - security review passed
+  - **NEW FEATURE**: Automatic detection and removal of Linux immutable attributes (`chattr +i`) when deleting files with `--remove-source`
+  - **PLATFORM-AWARE**: Feature only active on Linux systems with lsattr/chattr commands available
+  - **SAFE OPERATION**: Checks files with `lsattr` before deletion, removes immutable flag with `chattr -i` only when necessary
+  - **ERROR HANDLING**: Raises informative errors if immutable flag cannot be removed (operation not permitted)
+  - **AUDIT TRAIL**: All immutable attribute operations logged for security monitoring
+  - **ROOT REQUIRED**: Removing immutable attributes requires root privileges (documented sudoers configuration)
+  - **SECURITY REVIEW**: No new security vulnerabilities introduced
+  - Uses Open3.capture3 for safe command execution (no shell injection)
+  - Precise flag parsing prevents false positives from filenames containing 'i'
+  - Works for both single files (per-file mode) and directories (recursive, standard mode)
+  - Gracefully handles systems without lsattr/chattr (macOS, BSD, etc.)
+  - Test coverage: 6 comprehensive specs covering all scenarios
 
 - **v0.7.1** (2025-10-08): Paranoid mode duplicate detection - security review passed
   - **NEW FEATURE**: SHA256 content hashing for detecting file changes even when mtime/size are identical
