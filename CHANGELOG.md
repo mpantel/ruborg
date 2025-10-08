@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-10-08
+
+### Added
+- **Hostname Validation**: Optional `hostname` configuration key to restrict backup operations to specific hosts
+  - Can be configured globally or per-repository
+  - Repository-specific hostname overrides global setting
+  - Validates system hostname before backup, list, restore, check operations
+  - Prevents accidental execution of backups on wrong machines
+  - Displayed in `info` command output
+- Comprehensive test coverage for hostname validation (6 new test cases)
+- Documentation for hostname feature in example config and README
+
+### Changed
+- `info` command now displays hostname when configured (global or per-repository)
+
 ## [0.4.0] - 2025-10-06
 
 ### Added

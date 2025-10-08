@@ -6,6 +6,7 @@
 #   # Edit ruborg.yml with your settings
 
 # Global settings (applied to all repositories unless overridden)
+hostname: myserver.local  # Optional: restrict configuration to specific hostname
 compression: lz4          # Options: lz4 (fast), zstd (balanced), lzma (high compression), none
 encryption: repokey       # Options: repokey, keyfile, none (NOT recommended)
 auto_init: true           # Automatically initialize repositories on first use
@@ -65,6 +66,7 @@ repositories:
   - name: databases
     description: "MySQL and PostgreSQL database dumps"
     path: /mnt/backup/borg-databases
+    hostname: dbserver.local  # Optional: repository-specific hostname override
     retention_mode: per_file  # Each file gets its own archive
     # Repository-specific passbolt (overrides global)
     passbolt:

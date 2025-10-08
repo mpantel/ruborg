@@ -39,7 +39,7 @@ module Ruborg
 
     def global_settings
       @data.slice("passbolt", "compression", "encryption", "auto_init", "borg_options", "log_file", "retention",
-                  "auto_prune")
+                  "auto_prune", "hostname")
     end
 
     private

@@ -144,5 +144,21 @@ RSpec.describe Ruborg::Config do
 
       expect(settings).to be_a(Hash)
     end
+
+    it "includes hostname in global settings" do
+      config_data = {
+        "hostname" => "myserver.local",
+        "compression" => "lz4",
+        "repositories" => [
+          { "name" => "repo1", "path" => "/path1", "sources" => [{ "name" => "s1", "paths" => ["/p1"] }] }
+        ]
+      }
+      config_path = create_test_config(config_data)
+      config = described_class.new(config_path)
+
+      settings = config.global_settings
+
+      expect(settings["hostname"]).to eq("myserver.local")
+    end
   end
 end

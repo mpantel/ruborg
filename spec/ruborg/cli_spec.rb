@@ -189,4 +189,147 @@ RSpec.describe Ruborg::CLI do
       end.to raise_error(SystemExit)
     end
   end
+
+  describe "hostname validation", :borg do
+    let(:current_hostname) { `hostname`.strip }
+
+    before do
+      # Create repository first
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      # Create source files
+      FileUtils.mkdir_p(File.join(tmpdir, "backup_source"))
+      File.write(File.join(tmpdir, "backup_source", "test.txt"), "content")
+    end
+
+    context "when hostname matches" do
+      it "allows backup operation" do
+        config_with_hostname = config_data.merge(
+          "hostname" => current_hostname,
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_with_hostname = create_test_config(config_with_hostname)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_hostname, "--repository", "test-repo"])
+        end.to output(/Backup created/).to_stdout
+      end
+    end
+
+    context "when hostname does not match" do
+      it "raises ConfigError for backup command" do
+        config_with_wrong_hostname = config_data.merge(
+          "hostname" => "different-hostname.local",
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_with_wrong_hostname = create_test_config(config_with_wrong_hostname)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_wrong_hostname, "--repository", "test-repo"])
+        end.to raise_error(SystemExit)
+      end
+
+      it "raises ConfigError for list command" do
+        config_with_wrong_hostname = config_data.merge(
+          "hostname" => "different-hostname.local",
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_with_wrong_hostname = create_test_config(config_with_wrong_hostname)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["list", "--config", config_file_with_wrong_hostname, "--repository", "test-repo"])
+        end.to raise_error(SystemExit)
+      end
+    end
+
+    context "when hostname is not configured" do
+      it "allows backup operation without validation" do
+        config_without_hostname = config_data.merge("passbolt" => { "resource_id" => "test-id" })
+        config_file_without_hostname = create_test_config(config_without_hostname)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_without_hostname, "--repository", "test-repo"])
+        end.to output(/Backup created/).to_stdout
+      end
+    end
+
+    context "when repository has specific hostname" do
+      it "validates repository-specific hostname over global" do
+        config_with_repo_hostname = {
+          "hostname" => "global-hostname.local",
+          "compression" => "lz4",
+          "passbolt" => { "resource_id" => "test-id" },
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "hostname" => current_hostname,
+              "path" => repo_path,
+              "sources" => [
+                {
+                  "name" => "main",
+                  "paths" => [File.join(tmpdir, "backup_source")]
+                }
+              ]
+            }
+          ]
+        }
+        config_file_with_repo_hostname = create_test_config(config_with_repo_hostname)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_repo_hostname, "--repository", "test-repo"])
+        end.to output(/Backup created/).to_stdout
+      end
+
+      it "raises error when repository-specific hostname does not match" do
+        config_with_wrong_repo_hostname = {
+          "hostname" => current_hostname,
+          "compression" => "lz4",
+          "passbolt" => { "resource_id" => "test-id" },
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "hostname" => "different-repo-hostname.local",
+              "path" => repo_path,
+              "sources" => [
+                {
+                  "name" => "main",
+                  "paths" => [File.join(tmpdir, "backup_source")]
+                }
+              ]
+            }
+          ]
+        }
+        config_file_with_wrong_repo_hostname = create_test_config(config_with_wrong_repo_hostname)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_wrong_repo_hostname, "--repository", "test-repo"])
+        end.to raise_error(SystemExit)
+      end
+    end
+  end
 end

@@ -54,6 +54,7 @@ module Ruborg
     def backup
       @logger.info("Starting backup operation with config: #{options[:config]}")
       config = Config.new(options[:config])
+      validate_hostname(config.global_settings)
       backup_repositories(config)
     rescue Error => e
       @logger.error("Backup failed: #{e.message}")
@@ -72,6 +73,7 @@ module Ruborg
 
       global_settings = config.global_settings
       merged_config = global_settings.merge(repo_config)
+      validate_hostname(merged_config)
       passphrase = fetch_passphrase_for_repo(merged_config)
       borg_opts = merged_config["borg_options"] || {}
       borg_path = merged_config["borg_path"]
@@ -108,6 +110,7 @@ module Ruborg
 
       global_settings = config.global_settings
       merged_config = global_settings.merge(repo_config)
+      validate_hostname(merged_config)
       passphrase = fetch_passphrase_for_repo(merged_config)
       borg_opts = merged_config["borg_options"] || {}
       borg_path = merged_config["borg_path"]
@@ -175,6 +178,7 @@ module Ruborg
       @logger.info("Checking repository compatibility")
       config = Config.new(options[:config])
       global_settings = config.global_settings
+      validate_hostname(global_settings)
 
       # Show Borg version first
       borg_version = Repository.borg_version
@@ -207,6 +211,7 @@ module Ruborg
       @logger.info("Checking repository: #{repo_name}")
 
       merged_config = global_settings.merge(repo_config)
+      validate_hostname(merged_config)
       passphrase = fetch_passphrase_for_repo(merged_config)
       borg_opts = merged_config["borg_options"] || {}
       borg_path = merged_config["borg_path"]
@@ -267,6 +272,7 @@ module Ruborg
 
       # Show global settings
       puts "Global Settings:"
+      puts "  Hostname:       #{global_settings["hostname"]}" if global_settings["hostname"]
       puts "  Compression:    #{global_settings["compression"] || "lz4 (default)"}"
       puts "  Encryption:     #{global_settings["encryption"] || "repokey (default)"}"
       puts "  Auto-init:      #{global_settings["auto_init"] || false}"
@@ -284,6 +290,7 @@ module Ruborg
         puts "   Description: #{repo["description"]}" if repo["description"]
 
         # Show repo-specific overrides
+        puts "   Hostname:    #{repo["hostname"]}" if repo["hostname"]
         puts "   Compression: #{repo["compression"]}" if repo["compression"]
         puts "   Encryption:  #{repo["encryption"]}" if repo["encryption"]
         puts "   Auto-init:   #{repo["auto_init"]}" unless repo["auto_init"].nil?
@@ -389,6 +396,7 @@ module Ruborg
 
       # Merge global settings with repo-specific settings (repo-specific takes precedence)
       merged_config = global_settings.merge(repo_config)
+      validate_hostname(merged_config)
 
       passphrase = fetch_passphrase_for_repo(merged_config)
       borg_opts = merged_config["borg_options"] || {}
@@ -458,6 +466,18 @@ module Ruborg
 
       # Allow only alphanumeric, dash, underscore, and dot
       name.gsub(/[^a-zA-Z0-9._-]/, "_")
+    end
+
+    def validate_hostname(config)
+      configured_hostname = config["hostname"]
+      return if configured_hostname.nil? || configured_hostname.empty?
+
+      current_hostname = `hostname`.strip
+      return if current_hostname == configured_hostname
+
+      raise ConfigError,
+            "Hostname mismatch: configuration is for '#{configured_hostname}' " \
+            "but current hostname is '#{current_hostname}'"
     end
 
     # Wrapper class to adapt repository config to existing Backup class

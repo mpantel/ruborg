@@ -24,7 +24,8 @@ e- ⏰ **Retention Policies** - Configure backup retention (hourly, daily, weekl
 - 📋 **Repository Descriptions** - Document each repository's purpose
 - 📈 **Summary View** - Quick overview of all repositories and their configurations
 - 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
-- ✅ **Well-tested** - Comprehensive test suite with RSpec (147 tests)
+- 🏠 **Hostname Validation** - NEW! Restrict backups to specific hosts (global or per-repository)
+- ✅ **Well-tested** - Comprehensive test suite with RSpec (153 tests)
 - 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites
@@ -127,6 +128,7 @@ repositories:
   - name: databases
     description: "MySQL and PostgreSQL database dumps"
     path: /mnt/backup/databases
+    hostname: dbserver.local  # Optional: repository-specific hostname override
     # Repository-specific passbolt (overrides global)
     passbolt:
       resource_id: "db-specific-passbolt-id"
@@ -161,8 +163,9 @@ repositories:
 
 **Configuration Features:**
 - **Descriptions**: Add `description` field to document each repository's purpose
-- **Global Settings**: Compression, encryption, auto_init, log_file, borg_path, borg_options, and retention apply to all repositories
-- **Per-Repository Overrides**: Any global setting can be overridden at the repository level (including custom borg_path per repository)
+- **Hostname Validation**: Optional `hostname` field to restrict backups to specific hosts (global or per-repository)
+- **Global Settings**: Hostname, compression, encryption, auto_init, log_file, borg_path, borg_options, and retention apply to all repositories
+- **Per-Repository Overrides**: Any global setting can be overridden at the repository level (including hostname and custom borg_path)
 - **Custom Borg Path**: Specify a custom Borg executable path if borg is not in PATH or to use a specific version
 - **Retention Policies**: Define how many backups to keep (hourly, daily, weekly, monthly, yearly)
 - **Multiple Sources**: Each repository can have multiple backup sources with their own exclude patterns
@@ -337,6 +340,70 @@ repositories:
 ```
 
 When enabled, ruborg will automatically run `borg init` if the repository doesn't exist when you run `backup`, `list`, or `info` commands. The passphrase will be retrieved from Passbolt if configured.
+
+## Hostname Validation
+
+Restrict backup operations to specific hosts using the optional `hostname` configuration key. This prevents accidental execution of backups on the wrong machine.
+
+### Global Hostname
+
+Apply hostname restriction to all repositories:
+
+```yaml
+# Global hostname - applies to all repositories
+hostname: myserver.local
+
+repositories:
+  - name: documents
+    path: /mnt/backup/documents
+    sources:
+      - name: main
+        paths:
+          - /home/user/documents
+```
+
+### Per-Repository Hostname
+
+Override global hostname for specific repositories:
+
+```yaml
+# Global hostname for most repositories
+hostname: mainserver.local
+
+repositories:
+  # Uses global hostname (mainserver.local)
+  - name: documents
+    path: /mnt/backup/documents
+    sources:
+      - name: main
+        paths:
+          - /home/user/documents
+
+  # Override with repository-specific hostname
+  - name: databases
+    hostname: dbserver.local  # Only runs on dbserver.local
+    path: /mnt/backup/databases
+    sources:
+      - name: mysql
+        paths:
+          - /var/lib/mysql/dumps
+```
+
+**How it works:**
+- Before backup, list, restore, or check operations, Ruborg validates the system hostname
+- If configured hostname doesn't match the current hostname, the operation fails with an error
+- Repository-specific hostname takes precedence over global hostname
+- If no hostname is configured, validation is skipped
+
+**Example error:**
+```
+Error: Hostname mismatch: configuration is for 'dbserver.local' but current hostname is 'mainserver.local'
+```
+
+**Use cases:**
+- **Multi-server environments**: Different servers backup to different repositories
+- **Development vs Production**: Prevent production config from running on dev machines
+- **Safety**: Avoid accidentally running wrong backups on shared configuration files
 
 ## Security Configuration
 
