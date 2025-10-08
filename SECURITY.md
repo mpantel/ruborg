@@ -75,6 +75,72 @@ Ruborg implements several security measures to protect your backup operations:
 - Prevents configuration errors that could lead to unintended data loss
 - **CWE-843 Mitigation**: Protects against type confusion vulnerabilities
 
+### 14. Logging Security (v0.6.1+)
+- **Comprehensive logging** of backup operations for audit trails and troubleshooting
+- **Sensitive data protection**: Passwords and passphrases are NEVER logged
+- **Safe operational logging**: File paths, archive names, and operation status are logged
+- **Passbolt resource IDs** (UUIDs) are logged but actual passwords are not
+- **System path protection**: Failed deletion attempts are logged with full paths for security auditing
+- **Log level support**: INFO, WARN, ERROR, DEBUG levels for appropriate detail
+
+#### What Is Logged (Safe)
+- Repository creation and initialization events
+- Backup operation start/completion with file counts
+- Individual file paths being backed up (per-file mode)
+- Archive names (user-provided or auto-generated)
+- Restore operations with destination paths
+- Source file deletion events (when using `--remove-source`)
+- Passbolt resource IDs (UUIDs) for password retrieval attempts
+- System path deletion refusals with full path (security audit)
+- Pruning operations with archive counts
+
+#### What Is NEVER Logged (Protected)
+- ✅ **Passwords and passphrases** - Neither from CLI nor Passbolt
+- ✅ **Encryption keys** - Repository encryption keys never written to logs
+- ✅ **Passbolt passwords** - Only resource UUIDs logged, not actual retrieved passwords
+- ✅ **File contents** - Only paths and metadata, never file contents
+- ✅ **Environment variables** with sensitive data
+
+#### Log Security Recommendations
+1. **Protect log files** with restrictive permissions:
+   ```bash
+   chmod 600 ~/.ruborg/logs/ruborg.log
+   # Or for shared access with backup group:
+   chmod 640 ~/.ruborg/logs/ruborg.log
+   chown user:backup ~/.ruborg/logs/ruborg.log
+   ```
+
+2. **Configure log rotation** to prevent log files from growing indefinitely:
+   ```bash
+   # /etc/logrotate.d/ruborg
+   /home/user/.ruborg/logs/ruborg.log {
+       weekly
+       rotate 4
+       compress
+       missingok
+       notifempty
+       create 0600 user user
+   }
+   ```
+
+3. **Review logs regularly** for:
+   - Failed backup or restore operations
+   - Unauthorized `--remove-source` attempts
+   - Passbolt password retrieval failures
+   - System path deletion attempts (potential security issues)
+   - Unexpected file paths being backed up
+
+4. **Secure log storage locations**:
+   - Use absolute paths in `log_file` configuration
+   - Avoid logging to world-readable directories
+   - Consider logging to `/var/log/ruborg/` with proper permissions
+
+5. **Passbolt Resource IDs in Logs**:
+   - Resource IDs (UUIDs) are logged for operational debugging
+   - These are identifiers, not credentials - safe to log
+   - They cannot be used to access Passbolt without proper authentication
+   - Still, protect logs as they reveal which Passbolt resources are used
+
 ## Security Best Practices
 
 ### When Using `--remove-source`
@@ -162,6 +228,16 @@ If you discover a security vulnerability, please:
 We will respond within 48 hours and work with you to address the issue.
 
 ## Security Audit History
+
+- **v0.6.1** (2025-10-08): Enhanced logging with sensitive data protection
+  - **NEW FEATURE**: Comprehensive logging for backup operations, restoration, and deletion
+  - Passwords and passphrases are NEVER logged (neither CLI nor Passbolt passwords)
+  - Passbolt resource IDs (UUIDs) logged for debugging - identifiers only, not credentials
+  - File paths and archive names logged for audit trails
+  - System path deletion attempts logged with full paths for security monitoring
+  - Log levels: INFO, WARN, ERROR, DEBUG for appropriate detail
+  - Documentation added for logging security best practices
+  - Enhanced configuration validation with unknown key detection across all levels
 
 - **v0.6.0** (2025-10-08): Configuration validation and type confusion protection
   - **SECURITY FIX**: Implemented strict boolean type checking for `allow_remove_source`
