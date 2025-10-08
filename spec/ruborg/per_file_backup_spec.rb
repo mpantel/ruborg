@@ -482,4 +482,75 @@ RSpec.describe "Per-file backup mode", :borg do
       end.not_to raise_error
     end
   end
+
+  describe "Per-file --remove-source behavior" do
+    it "deletes each file immediately after successful backup" do
+      # Create test files
+      file1 = File.join(source_dir, "file1.txt")
+      file2 = File.join(source_dir, "file2.txt")
+      File.write(file1, "content1")
+      File.write(file2, "content2")
+
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      config = double("config",
+                      backup_paths: [source_dir],
+                      exclude_patterns: [],
+                      compression: "lz4")
+
+      backup = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+
+      # Track file deletion order
+      deleted_files = []
+      allow(FileUtils).to receive(:rm) do |path|
+        deleted_files << path
+      end
+
+      backup.create(remove_source: true)
+
+      # Should have deleted exactly 2 files (use realpath to handle macOS /private prefix)
+      expect(deleted_files.length).to eq(2)
+      expect(deleted_files).to include(File.realpath(file1))
+      expect(deleted_files).to include(File.realpath(file2))
+    end
+
+    it "does not delete skipped files (unchanged)" do
+      # Create and backup a file
+      test_file = File.join(source_dir, "test.txt")
+      File.write(test_file, "content")
+
+      # Preserve the mtime for later
+      original_mtime = File.mtime(test_file)
+
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      config = double("config",
+                      backup_paths: [source_dir],
+                      exclude_patterns: [],
+                      compression: "lz4")
+
+      backup = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+      backup.create(remove_source: true)
+
+      # Verify file was deleted
+      expect(File.exist?(test_file)).to be false
+
+      # Recreate the same file with same content AND same mtime
+      File.write(test_file, "content")
+      File.utime(original_mtime, original_mtime, test_file)
+
+      # Backup again with remove_source - should skip and NOT delete
+      backup2 = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+      output = capture_output { backup2.create(remove_source: true) }
+
+      # Verify it was skipped
+      expect(output).to include("Archive already exists (file unchanged)")
+      expect(output).to include("1 skipped (unchanged)")
+
+      # File should still exist (was skipped, not backed up, so not deleted)
+      expect(File.exist?(test_file)).to be true
+    end
+  end
 end

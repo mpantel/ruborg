@@ -131,6 +131,9 @@ module Ruborg
         # Log successful action with details
         @logger&.info("[#{@repo_name}] Archived #{file_path} in archive #{archive_name}")
         backed_up_count += 1
+
+        # Remove source file immediately after successful backup in per-file mode
+        remove_single_file(file_path) if remove_source
       end
       # rubocop:enable Metrics/BlockLength
 
@@ -139,9 +142,6 @@ module Ruborg
       else
         puts "✓ Per-file backup completed: #{backed_up_count} file(s) backed up"
       end
-
-      # NOTE: remove_source handled per file after successful backup
-      remove_source_files if remove_source
     end
     # rubocop:enable Metrics/AbcSize, Metrics/MethodLength, Metrics/PerceivedComplexity, Metrics/BlockNesting
 
@@ -331,6 +331,34 @@ module Ruborg
       raise BorgError, "Borg command failed: #{cmd.join(" ")}" unless result
 
       result
+    end
+
+    def remove_single_file(file_path)
+      require "fileutils"
+
+      # Resolve symlinks and validate path
+      begin
+        real_path = File.realpath(file_path)
+      rescue Errno::ENOENT
+        # File doesn't exist (already deleted?), skip
+        @logger&.warn("Source file does not exist, skipping: #{file_path}")
+        return
+      end
+
+      # Security check: ensure file still exists
+      unless File.exist?(real_path)
+        @logger&.warn("Source file no longer exists, skipping: #{real_path}")
+        return
+      end
+
+      # Additional safety: don't delete system files
+      if real_path == "/" || real_path.start_with?("/bin", "/sbin", "/usr", "/etc", "/sys", "/proc")
+        @logger&.error("Refusing to delete system path: #{real_path}")
+        raise BorgError, "Refusing to delete system path: #{real_path}"
+      end
+
+      @logger&.info("Removing file: #{real_path}")
+      FileUtils.rm(real_path)
     end
 
     def remove_source_files

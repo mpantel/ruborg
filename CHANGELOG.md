@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2025-10-09
+
+### Fixed
+- **Per-File Remove Source Behavior**: Files are now deleted immediately after each successful backup in per-file mode
+  - Previously deleted entire source paths at the end (dangerous - could delete unchanged files)
+  - Now deletes only successfully backed-up files, one at a time
+  - Skipped files (unchanged) are never deleted
+  - Matches the per-file philosophy: individual file handling throughout the backup process
+
+### Added
+- **Test Coverage**: Added 2 new RSpec tests verifying per-file remove-source behavior
+  - Tests immediate file deletion after backup
+  - Tests that skipped files are not deleted
+
 ## [0.7.1] - 2025-10-08
 
 ### Added
