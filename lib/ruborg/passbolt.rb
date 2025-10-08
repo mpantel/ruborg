@@ -5,19 +5,26 @@ require "json"
 module Ruborg
   # Passbolt CLI integration for password management
   class Passbolt
-    def initialize(resource_id: nil)
+    def initialize(resource_id: nil, logger: nil)
       @resource_id = resource_id
+      @logger = logger
       check_passbolt_cli
     end
 
     def get_password
       raise PassboltError, "Resource ID not configured" unless @resource_id
 
+      @logger&.info("Retrieving password from Passbolt (resource_id: #{@resource_id})")
+
       cmd = ["passbolt", "get", "resource", @resource_id, "--json"]
       output, status = execute_command(cmd)
 
-      raise PassboltError, "Failed to retrieve password from Passbolt" unless status
+      unless status
+        @logger&.error("Failed to retrieve password from Passbolt for resource #{@resource_id}")
+        raise PassboltError, "Failed to retrieve password from Passbolt"
+      end
 
+      @logger&.info("Successfully retrieved password from Passbolt")
       parse_password(output)
     end
 

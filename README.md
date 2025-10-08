@@ -17,7 +17,7 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 📊 **Logging** - Comprehensive logging with daily rotation
 - 🗄️ **Multi-Repository** - Manage multiple backup repositories with different sources
 - 🔄 **Auto-initialization** - Automatically initialize repositories on first use
-e- ⏰ **Retention Policies** - Configure backup retention (hourly, daily, weekly, monthly, yearly)
+- ⏰ **Retention Policies** - Configure backup retention (hourly, daily, weekly, monthly, yearly)
 - 🗑️ **Automatic Pruning** - Automatically remove old backups based on retention policies
 - 📁 **Per-File Backup Mode** - NEW! Backup each file as a separate archive with metadata-based retention
 - 🕒 **File Metadata Retention** - NEW! Prune based on file modification time, works even after files are deleted
@@ -25,7 +25,7 @@ e- ⏰ **Retention Policies** - Configure backup retention (hourly, daily, weekl
 - 📈 **Summary View** - Quick overview of all repositories and their configurations
 - 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
 - 🏠 **Hostname Validation** - NEW! Restrict backups to specific hosts (global or per-repository)
-- ✅ **Well-tested** - Comprehensive test suite with RSpec (178+ tests)
+- ✅ **Well-tested** - Comprehensive test suite with RSpec (220 examples, 0 failures)
 - 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites
@@ -188,11 +188,20 @@ ruborg validate --config ruborg.yml
 ```
 
 **Validation checks:**
-- Boolean types (must be `true` or `false`, not strings like `'true'`)
-- Valid compression values (lz4, zstd, zlib, lzma, none)
-- Valid encryption modes
-- Required repository fields (name, path)
-- Correct borg_options values
+- **Unknown configuration keys**: Detects typos and invalid keys at all levels (catches `auto_prun` vs `auto_prune`)
+- **Boolean types**: Must be `true` or `false`, not strings like `'true'`
+- **Retention policies**: Validates structure and values
+  - Integer fields (keep_hourly, keep_daily, etc.) must be non-negative integers
+  - Time-based fields (keep_within, keep_files_modified_within) must use format like "7d", "30d"
+  - Rejects empty retention policies
+  - Detects unknown retention keys
+- **Passbolt configuration**: Validates resource_id is non-empty string
+- **Retention mode**: Must be "standard" or "per_file"
+- **Compression values**: Must be one of: lz4, zstd, zlib, lzma, none
+- **Encryption modes**: Must be valid Borg encryption mode
+- **Repository structure**: Required fields (name, path, sources)
+- **Source structure**: Required fields (name, paths), validates exclude arrays
+- **Borg options**: Validates allow_relocated_repo and allow_unencrypted_repo
 
 **Example validation output:**
 
@@ -210,6 +219,115 @@ Or with errors:
 
 Configuration has errors that must be fixed.
 ```
+
+## Logging
+
+Ruborg v0.6.1 includes comprehensive logging to help you track backup operations, troubleshoot issues, and maintain audit trails. Logs are written to `~/.ruborg/logs/ruborg.log` by default, or to a custom location specified in your configuration.
+
+### What Gets Logged
+
+Ruborg logs operational information at various levels to help you monitor and debug backup operations:
+
+#### Repository Operations
+- Repository creation and initialization
+- Repository path and encryption mode
+- Per-file pruning operations (archive counts, file modification times)
+- Archive deletion during pruning
+
+#### Backup Operations
+- Number of files found for backup (per-file mode)
+- Individual file backup progress (per-file mode)
+- Backup completion status
+- Archive names (user-provided or auto-generated)
+
+#### Restore Operations
+- Archive extraction start (archive name, destination path)
+- Specific paths being restored (if using `--path` option)
+- Extraction completion status
+
+#### Source File Deletion (when using `--remove-source`)
+- Start of source file removal process
+- Each file/directory being removed (with full resolved path)
+- Warnings for non-existent or missing paths
+- Errors when attempting to delete system directories (with path)
+- Count of items successfully removed
+
+#### Passbolt Integration
+- Password retrieval start (includes Passbolt resource UUID)
+- Password retrieval failures (includes resource UUID)
+
+### What Is NOT Logged
+
+To protect sensitive information, the following are **never logged**:
+
+- ✅ **Passwords and passphrases** - Neither from command line nor from Passbolt
+- ✅ **File contents** - Only file paths and metadata
+- ✅ **Encryption keys** - Repository encryption passphrases are never written to logs
+- ✅ **Passbolt passwords** - Only resource IDs (UUIDs) are logged, never the actual passwords retrieved
+
+### Log Levels
+
+- **INFO**: Normal operation events (backups, restores, deletions)
+- **WARN**: Non-critical issues (missing paths, skipped operations)
+- **ERROR**: Critical errors (system path deletion attempts, command failures)
+- **DEBUG**: Detailed information for troubleshooting (requires DEBUG level configuration)
+
+### Configuring Logging
+
+```yaml
+# Log to default location: ~/.ruborg/logs/ruborg.log
+log_file: default
+
+# OR custom log file path
+log_file: /var/log/ruborg/backup.log
+
+# OR disable file logging (stdout only)
+log_file: stdout
+```
+
+You can also override the log file location using the `--log` command-line option:
+
+```bash
+ruborg backup --repository documents --log /tmp/debug.log
+```
+
+### Log Security Considerations
+
+- **File Paths**: Logs contain file and directory paths being backed up. Secure your log files with appropriate permissions (recommended: `chmod 600` or `640`)
+- **Passbolt Resource IDs**: UUID identifiers for Passbolt resources are logged. These are safe to log as they are unguessable and don't expose credentials, but logs should still be protected
+- **Archive Names**: User-provided or auto-generated archive names are logged for audit purposes
+- **System Paths**: When `--remove-source` attempts to delete system directories, the full path is logged in error messages for security auditing
+
+### Best Practices
+
+1. **Secure Log Files**: Set restrictive permissions on log files
+   ```bash
+   chmod 600 ~/.ruborg/logs/ruborg.log
+   ```
+
+2. **Log Rotation**: Configure log rotation to prevent logs from consuming excessive disk space
+   ```bash
+   # Example logrotate configuration
+   /home/user/.ruborg/logs/ruborg.log {
+       weekly
+       rotate 4
+       compress
+       missingok
+       notifempty
+   }
+   ```
+
+3. **Monitoring**: Review logs regularly to detect:
+   - Failed backup operations
+   - Unauthorized deletion attempts
+   - Passbolt password retrieval failures
+   - Unexpected file paths
+
+4. **Audit Trail**: Logs provide an audit trail for compliance purposes:
+   - What was backed up and when
+   - What was restored and where
+   - What was deleted (with `--remove-source`)
+   - Any errors or security-related events
 
 ## Usage
 
@@ -349,31 +467,6 @@ Borg version: 1.2.8
     Repository version 2 cannot be read by Borg 1.2.8
     Please upgrade Borg or migrate the repository
 ```
-
-## Logging
-
-Ruborg automatically logs all operations with daily rotation. Log file location priority:
-
-1. **CLI option** (highest priority): `--log /path/to/custom.log`
-2. **Config file**: `log_file: /path/to/log.log`
-3. **Default**: `~/.ruborg/logs/ruborg.log`
-
-**Examples:**
-
-```bash
-# Use CLI option (overrides config)
-ruborg backup --log /var/log/ruborg.log
-
-# Or set in config file
-log_file: /var/log/ruborg.log
-```
-
-**Logs include:**
-- Operation start/completion timestamps
-- Paths being backed up
-- Archive names created
-- Success and error messages
-- Source file removal actions
 
 ## Passbolt Integration
 

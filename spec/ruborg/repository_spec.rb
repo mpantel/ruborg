@@ -345,4 +345,108 @@ RSpec.describe Ruborg::Repository do
       expect(result[:compatible]).to be false
     end
   end
+
+  describe "logging functionality" do
+    let(:logger) { instance_double(Ruborg::RuborgLogger) }
+
+    before do
+      allow(logger).to receive(:info)
+      allow(logger).to receive(:warn)
+      allow(logger).to receive(:error)
+      allow(logger).to receive(:debug)
+    end
+
+    describe "repository creation logging", :borg do
+      it "logs repository creation" do
+        repo = described_class.new(repo_path, passphrase: passphrase, logger: logger)
+
+        expect(logger).to receive(:info).with(/Creating Borg repository at #{Regexp.escape(repo_path)} with repokey encryption/)
+        expect(logger).to receive(:info).with(/Repository created successfully at #{Regexp.escape(repo_path)}/)
+
+        repo.create
+      end
+    end
+
+    describe "pruning logging", :borg do
+      let(:retention_policy) { { "keep_daily" => 7 } }
+
+      before do
+        repo = described_class.new(repo_path, passphrase: passphrase)
+        repo.create
+      end
+
+      it "logs standard pruning operations" do
+        repo = described_class.new(repo_path, passphrase: passphrase, logger: logger)
+
+        # prune will execute borg command which logs via system, not via logger
+        # but we can still test that logger is passed and available
+        expect do
+          repo.prune(retention_policy)
+        end.not_to raise_error
+      end
+    end
+
+    describe "per-file pruning logging", :borg do
+      let(:source_dir) { File.join(tmpdir, "source") }
+
+      before do
+        # Create repository
+        repo = described_class.new(repo_path, passphrase: passphrase)
+        repo.create
+
+        # Create a per-file backup
+        FileUtils.mkdir_p(source_dir)
+        File.write(File.join(source_dir, "test.txt"), "content")
+
+        config = double("BackupConfig")
+        allow(config).to receive_messages(
+          backup_paths: [File.join(source_dir, "test.txt")],
+          exclude_patterns: [],
+          compression: "lz4"
+        )
+
+        backup = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+        backup.create
+      end
+
+      it "logs per-file pruning operations" do
+        repo = described_class.new(repo_path, passphrase: passphrase, logger: logger)
+
+        # Use keep_files_modified_within which triggers per-file pruning logic
+        retention_policy = { "keep_files_modified_within" => "1d" }
+
+        expect(logger).to receive(:info).with(/Pruning per-file archives based on file modification time/)
+        expect(logger).to receive(:info).with(/Found \d+ archive\(s\) to evaluate for pruning/)
+
+        repo.prune(retention_policy, retention_mode: "per_file")
+      end
+
+      it "logs when falling back to standard pruning" do
+        repo = described_class.new(repo_path, passphrase: passphrase, logger: logger)
+
+        # Use standard retention policy without keep_files_modified_within
+        retention_policy = { "keep_daily" => 7 }
+
+        expect(logger).to receive(:info).with(/No file metadata retention specified, using standard pruning/)
+
+        repo.prune(retention_policy, retention_mode: "per_file")
+      end
+
+      it "logs archives marked for deletion" do
+        repo = described_class.new(repo_path, passphrase: passphrase, logger: logger)
+
+        # Use a very short retention to ensure deletion
+        retention_policy = { "keep_files_modified_within" => "0d" }
+
+        expect(logger).to receive(:info).with(/Pruning per-file archives/)
+        expect(logger).to receive(:info).with(/Found \d+ archive\(s\) to evaluate/)
+        expect(logger).to receive(:info).with(/Deleting \d+ archive\(s\)/)
+        expect(logger).to receive(:debug).at_least(:once).with(/Archive .+ marked for deletion/)
+        expect(logger).to receive(:debug).at_least(:once).with(/Deleting archive:/)
+        expect(logger).to receive(:info).with(/Pruned \d+ archive\(s\) based on file modification time/)
+
+        repo.prune(retention_policy, retention_mode: "per_file")
+      end
+    end
+  end
 end

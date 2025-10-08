@@ -94,7 +94,7 @@ RSpec.describe "Backup integration with repositories", :borg do
     it "requires --repository or --all" do
       expect do
         Ruborg::CLI.start(["backup", "--config", config_file])
-      end.to raise_error(SystemExit)
+      end.to raise_error(Ruborg::ConfigError)
     end
 
     it "backs up specific repository with --repository option" do
@@ -116,7 +116,7 @@ RSpec.describe "Backup integration with repositories", :borg do
 
     it "uses repository-specific passbolt when provided" do
       expect(Ruborg::Passbolt).to receive(:new)
-        .with(resource_id: "db-specific-id")
+        .with(hash_including(resource_id: "db-specific-id"))
         .and_call_original
 
       Ruborg::CLI.start(["backup", "--config", config_file, "--repository", "databases"])

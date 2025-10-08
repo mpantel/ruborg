@@ -6,11 +6,12 @@ module Ruborg
   class Repository
     attr_reader :path, :borg_path
 
-    def initialize(path, passphrase: nil, borg_options: {}, borg_path: nil)
+    def initialize(path, passphrase: nil, borg_options: {}, borg_path: nil, logger: nil)
       @path = validate_repo_path(path)
       @passphrase = passphrase
       @borg_options = borg_options
       @borg_path = validate_borg_path(borg_path || "borg")
+      @logger = logger
     end
 
     def exists?
@@ -20,8 +21,10 @@ module Ruborg
     def create
       raise BorgError, "Repository already exists at #{@path}" if exists?
 
+      @logger&.info("Creating Borg repository at #{@path} with repokey encryption")
       cmd = [@borg_path, "init", "--encryption=repokey", @path]
       execute_borg_command(cmd)
+      @logger&.info("Repository created successfully at #{@path}")
     end
 
     def info
@@ -74,15 +77,19 @@ module Ruborg
 
       unless keep_files_modified_within
         # Fall back to standard pruning if no file metadata retention specified
+        @logger&.info("No file metadata retention specified, using standard pruning")
         prune_standard_archives(retention_policy)
         return
       end
+
+      @logger&.info("Pruning per-file archives based on file modification time (keep within: #{keep_files_modified_within})")
 
       # Parse time duration (e.g., "30d" -> 30 days)
       cutoff_time = Time.now - parse_time_duration(keep_files_modified_within)
 
       # Get all archives with metadata
       archives = list_archives_with_metadata
+      @logger&.info("Found #{archives.size} archive(s) to evaluate for pruning")
 
       archives_to_delete = []
 
@@ -91,16 +98,23 @@ module Ruborg
         file_mtime = get_file_mtime_from_archive(archive[:name])
 
         # Delete archive if file was modified before cutoff
-        archives_to_delete << archive[:name] if file_mtime && file_mtime < cutoff_time
-      end
-
-      # Delete archives
-      archives_to_delete.each do |archive_name|
-        delete_archive(archive_name)
+        if file_mtime && file_mtime < cutoff_time
+          archives_to_delete << archive[:name]
+          @logger&.debug("Archive #{archive[:name]} marked for deletion (file mtime: #{file_mtime})")
+        end
       end
 
       return if archives_to_delete.empty?
 
+      @logger&.info("Deleting #{archives_to_delete.size} archive(s)")
+
+      # Delete archives
+      archives_to_delete.each do |archive_name|
+        @logger&.debug("Deleting archive: #{archive_name}")
+        delete_archive(archive_name)
+      end
+
+      @logger&.info("Pruned #{archives_to_delete.size} archive(s) based on file modification time")
       puts "Pruned #{archives_to_delete.size} archive(s) based on file modification time"
     end
 

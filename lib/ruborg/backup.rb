@@ -3,11 +3,12 @@
 module Ruborg
   # Backup operations using Borg
   class Backup
-    def initialize(repository, config:, retention_mode: "standard", repo_name: nil)
+    def initialize(repository, config:, retention_mode: "standard", repo_name: nil, logger: nil)
       @repository = repository
       @config = config
       @retention_mode = retention_mode
       @repo_name = repo_name
+      @logger = logger
     end
 
     def create(name: nil, remove_source: false)
@@ -37,18 +38,24 @@ module Ruborg
 
       raise BorgError, "No files found to backup" if files_to_backup.empty?
 
+      @logger&.info("Per-file mode: Found #{files_to_backup.size} file(s) to backup")
+
       timestamp = Time.now.strftime("%Y-%m-%d_%H-%M-%S")
 
-      files_to_backup.each do |file_path|
+      files_to_backup.each_with_index do |file_path, index|
         # Generate hash-based archive name
         path_hash = generate_path_hash(file_path)
         archive_name = name_prefix || "#{@repo_name}-#{path_hash}-#{timestamp}"
+
+        @logger&.info("Backing up file #{index + 1}/#{files_to_backup.size}: #{file_path}")
 
         # Create archive for single file with original path as comment
         cmd = build_per_file_create_command(archive_name, file_path)
 
         execute_borg_command(cmd)
       end
+
+      @logger&.info("Per-file backup completed: #{files_to_backup.size} file(s) backed up")
 
       # NOTE: remove_source handled per file after successful backup
       remove_source_files if remove_source
@@ -108,6 +115,9 @@ module Ruborg
     def extract(archive_name, destination: ".", path: nil)
       raise BorgError, "Repository does not exist" unless @repository.exists?
 
+      extract_target = path ? "#{path} from #{archive_name}" : archive_name
+      @logger&.info("Extracting #{extract_target} to #{destination}")
+
       cmd = [@repository.borg_path, "extract", "#{@repository.path}::#{archive_name}"]
       cmd << path if path
 
@@ -125,6 +135,8 @@ module Ruborg
           execute_borg_command(cmd)
         end
       end
+
+      @logger&.info("Extraction completed successfully")
     end
 
     def list_archives
@@ -132,8 +144,10 @@ module Ruborg
     end
 
     def delete(archive_name)
+      @logger&.info("Deleting archive: #{archive_name}")
       cmd = [@repository.borg_path, "delete", "#{@repository.path}::#{archive_name}"]
       execute_borg_command(cmd)
+      @logger&.info("Archive deleted successfully: #{archive_name}")
     end
 
     private
@@ -171,29 +185,45 @@ module Ruborg
     def remove_source_files
       require "fileutils"
 
+      @logger&.info("Removing source files after successful backup")
+
+      removed_count = 0
+
       @config.backup_paths.each do |path|
         # Resolve symlinks and validate path
         begin
           real_path = File.realpath(path)
         rescue Errno::ENOENT
           # Path doesn't exist, skip
+          @logger&.warn("Source path does not exist, skipping: #{path}")
           next
         end
 
         # Security check: ensure path hasn't been tampered with
-        next unless File.exist?(real_path)
+        unless File.exist?(real_path)
+          @logger&.warn("Source path no longer exists, skipping: #{real_path}")
+          next
+        end
 
         # Additional safety: don't delete root or system directories
         if real_path == "/" || real_path.start_with?("/bin", "/sbin", "/usr", "/etc", "/sys", "/proc")
+          @logger&.error("Refusing to delete system path: #{real_path}")
           raise BorgError, "Refusing to delete system path: #{real_path}"
         end
+
+        file_type = File.directory?(real_path) ? "directory" : "file"
+        @logger&.info("Removing #{file_type}: #{real_path}")
 
         if File.directory?(real_path)
           FileUtils.rm_rf(real_path, secure: true)
         elsif File.file?(real_path)
           FileUtils.rm(real_path)
         end
+
+        removed_count += 1
       end
+
+      @logger&.info("Source file removal completed: #{removed_count} item(s) removed")
     end
 
     def validate_destination_path(destination)

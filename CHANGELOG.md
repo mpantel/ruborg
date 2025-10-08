@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2025-10-08
+
+### Added
+- **Enhanced Configuration Validation**: Comprehensive validation system to catch configuration errors early
+  - **Unknown Key Detection**: Detects typos and invalid configuration keys at all levels (global, repository, sources, retention, passbolt, borg_options)
+  - **Retention Policy Validation**: Validates retention policy structure and values
+    - Integer fields (keep_hourly, keep_daily, etc.) must be non-negative integers
+    - Time-based fields (keep_within, keep_files_modified_within) must use correct format (e.g., "7d", "30d")
+    - Validates time format with h/d/w/m/y suffixes
+    - Rejects empty retention policies
+    - Detects unknown retention keys
+  - **Passbolt Configuration Validation**: Validates passbolt config structure
+    - Requires non-empty `resource_id` string
+    - Type validation for resource_id field
+    - Detects unknown passbolt keys
+  - **Retention Mode Validation**: Validates `retention_mode` values (must be "standard" or "per_file")
+  - **Source Validation**: Validates source structure (name, paths, exclude fields)
+- **Comprehensive Logging**: Added logging throughout backup, restore, and deletion operations
+  - Repository operations (initialization, pruning, archive management)
+  - Backup operations (file counts, progress in per-file mode)
+  - Restore operations (extraction start/completion)
+  - Source file deletion tracking (with `--remove-source`)
+  - Passbolt integration events (resource ID logged, never passwords)
+  - All sensitive data (passwords, encryption keys) protected from logs
+- **Enhanced Test Suite**: Expanded test coverage to 220 examples (67 new tests added)
+  - 23 new configuration validation tests
+  - 28 new logging integration tests
+  - 10 new CLI validation tests
+  - 6 new type checking tests for boolean configurations
+  - All tests passing with 0 failures
+
+### Changed
+- `global_settings` now includes `borg_path` (previously was in whitelist but not propagated)
+- Validation errors are collected and reported together for better user experience
+- All validation runs automatically on configuration load
+
+### Fixed
+- **Configuration Consistency**: Fixed inconsistency where `borg_path` was allowed in VALID_GLOBAL_KEYS but not returned by `global_settings` method
+
 ## [0.6.0] - 2025-10-08
 
 ### Added
