@@ -515,7 +515,7 @@ RSpec.describe "Per-file backup mode", :borg do
       expect(deleted_files).to include(File.realpath(file2))
     end
 
-    it "does not delete skipped files (unchanged)" do
+    it "deletes skipped files when already backed up (unchanged)" do
       # Create and backup a file
       test_file = File.join(source_dir, "test.txt")
       File.write(test_file, "content")
@@ -541,7 +541,7 @@ RSpec.describe "Per-file backup mode", :borg do
       File.write(test_file, "content")
       File.utime(original_mtime, original_mtime, test_file)
 
-      # Backup again with remove_source - should skip and NOT delete
+      # Backup again with remove_source - should skip BUT delete (already safely backed up)
       backup2 = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
       output = capture_output { backup2.create(remove_source: true) }
 
@@ -549,8 +549,8 @@ RSpec.describe "Per-file backup mode", :borg do
       expect(output).to include("Archive already exists (file unchanged)")
       expect(output).to include("1 skipped (unchanged)")
 
-      # File should still exist (was skipped, not backed up, so not deleted)
-      expect(File.exist?(test_file)).to be true
+      # File should be deleted (was skipped because already backed up, so safe to remove)
+      expect(File.exist?(test_file)).to be false
     end
   end
 end

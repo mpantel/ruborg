@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2025-10-09
+
+### Changed
+- **Smart Remove-Source for Skipped Files**: Skipped files (unchanged, already backed up) are now deleted when `--remove-source` is used
+  - Previously: Only newly backed-up files were deleted, skipped files remained
+  - Now: Both backed-up AND skipped files are deleted (they're all safely backed up)
+  - Rationale: If a file is skipped because it's already in an archive (verified by hash), it's safe to delete
+  - Makes `--remove-source` behavior consistent: "delete everything that's safely backed up"
+
+### Technical Details
+- Per-file mode verifies files are safely backed up before skipping (path + size + SHA256 hash match)
+- Skipped files are deleted immediately after verification (lib/ruborg/backup.rb:102)
+- Test updated to verify skipped files are deleted (spec/ruborg/per_file_backup_spec.rb:518)
+
 ## [0.7.2] - 2025-10-09
 
 ### Fixed

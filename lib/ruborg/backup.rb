@@ -91,12 +91,16 @@ module Ruborg
               stored_hash = stored_info[:hash]
 
               if current_hash == stored_hash
-                # Content truly unchanged
+                # Content truly unchanged - file is already safely backed up
                 puts " - Archive already exists (file unchanged)"
                 @logger&.info(
                   "[#{@repo_name}] Skipped #{file_path} - archive #{archive_name} already exists (file unchanged)"
                 )
                 skipped_count += 1
+
+                # If remove_source is enabled, delete the file (it's already safely backed up)
+                remove_single_file(file_path) if remove_source
+
                 next
               else
                 # Size same but content changed (rare: edited + truncated/padded to same size)
