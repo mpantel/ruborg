@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2025-10-08
+
+### Added
+- **Paranoid Mode Duplicate Detection**: Per-file backup mode now uses SHA256 content hashing to detect duplicate files
+  - Skips unchanged files automatically (same path, size, and content hash)
+  - Creates versioned archives (-v2, -v3) when content changes but modification time stays the same
+  - Protects against edge cases where files are modified with manual `touch -t` operations
+  - Archive metadata stores: `path|||size|||hash` for comprehensive verification
+  - Backward compatible with old archive formats (plain path, path|||hash)
+- **Smart Skip Statistics**: Backup completion messages show both backed-up and skipped file counts
+  - Example: "✓ Per-file backup completed: 50000 file(s) backed up, 26456 skipped (unchanged)"
+  - Provides visibility into deduplication efficiency
+
+### Fixed
+- **Per-File Backup Archive Collision**: Fixed "Archive already exists" error in per-file backup mode
+  - Archives are now verified by path, size, and content hash before skipping
+  - Different files with same archive name get automatic version suffixes
+  - File size changes detected even when modification time is manually reset
+  - Logs warning messages for collision scenarios with detailed context
+
+### Changed
+- **Archive Comment Format**: Per-file archives now store comprehensive metadata
+  - New format: `path|||size|||hash` (three-part delimiter-based format)
+  - Enables instant duplicate detection without re-hashing files
+  - Backward compatible parsing handles old formats gracefully
+- **Enhanced Collision Handling**: Intelligent version suffix generation
+  - Appends `-v2`, `-v3`, etc. for archive name collisions
+  - Prevents data loss from conflicting archive names
+  - Logs warnings for all collision scenarios
+
+### Security
+- **No Security Impact**: Security review found no exploitable vulnerabilities in new features
+  - Content hashing uses SHA256 (cryptographically secure)
+  - Archive comment parsing uses safe string splitting (no injection risks)
+  - File paths from archives only used for comparison, not file operations
+  - Array-based command execution prevents shell injection
+  - JSON parsing uses Ruby's safe `JSON.parse()` with error handling
+  - All existing security controls maintained
+
 ## [0.7.0] - 2025-10-08
 
 ### Added

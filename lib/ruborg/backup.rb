@@ -43,17 +43,25 @@ module Ruborg
       remove_source_files if remove_source
     end
 
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/PerceivedComplexity, Metrics/BlockNesting
     def create_per_file_archives(name_prefix, remove_source)
       # Collect all files from backup paths
       files_to_backup = collect_files_from_paths(@config.backup_paths, @config.exclude_patterns)
 
       raise BorgError, "No files found to backup" if files_to_backup.empty?
 
+      # Get list of existing archives for duplicate detection
+      existing_archives = get_existing_archive_names
+
       # Show repository header in console only
       print_repository_header
 
       puts "Found #{files_to_backup.size} file(s) to backup"
 
+      backed_up_count = 0
+      skipped_count = 0
+
+      # rubocop:disable Metrics/BlockLength
       files_to_backup.each_with_index do |file_path, index|
         # Generate hash-based archive name with filename
         path_hash = generate_path_hash(file_path)
@@ -67,22 +75,75 @@ module Ruborg
         archive_name = name_prefix || build_archive_name(@repo_name, sanitized_filename, path_hash, file_mtime)
 
         # Show progress in console
-        puts "  [#{index + 1}/#{files_to_backup.size}] Backing up: #{file_path}"
+        print "  [#{index + 1}/#{files_to_backup.size}] Backing up: #{file_path}"
+
+        # Check if archive already exists AND contains this exact file
+        if existing_archives.key?(archive_name)
+          stored_info = existing_archives[archive_name]
+          if stored_info[:path] == file_path
+            # Same file, same mtime -> check if size changed (rare: manual content edit + touch -t)
+            current_size = File.size(file_path)
+            stored_size = stored_info[:size]
+
+            if current_size == stored_size
+              # Size same -> verify content hasn't changed (paranoid mode)
+              current_hash = calculate_file_hash(file_path)
+              stored_hash = stored_info[:hash]
+
+              if current_hash == stored_hash
+                # Content truly unchanged
+                puts " - Archive already exists (file unchanged)"
+                @logger&.info(
+                  "[#{@repo_name}] Skipped #{file_path} - archive #{archive_name} already exists (file unchanged)"
+                )
+                skipped_count += 1
+                next
+              else
+                # Size same but content changed (rare: edited + truncated/padded to same size)
+                archive_name = find_next_version_name(archive_name, existing_archives)
+                @logger&.warn(
+                  "[#{@repo_name}] File content changed but size/mtime unchanged for #{file_path}, " \
+                  "using #{archive_name}"
+                )
+              end
+            else
+              # Size changed but mtime same -> content changed, add version suffix
+              archive_name = find_next_version_name(archive_name, existing_archives)
+              @logger&.warn(
+                "[#{@repo_name}] File size changed but mtime unchanged for #{file_path}, using #{archive_name}"
+              )
+            end
+          else
+            # Different file, same archive name -> add version suffix
+            archive_name = find_next_version_name(archive_name, existing_archives)
+            @logger&.warn(
+              "[#{@repo_name}] Archive name collision: #{archive_name} exists for different file, using version suffix"
+            )
+          end
+        end
 
         # Create archive for single file with original path as comment
         cmd = build_per_file_create_command(archive_name, file_path)
 
         execute_borg_command(cmd)
+        puts ""
 
         # Log successful action with details
         @logger&.info("[#{@repo_name}] Archived #{file_path} in archive #{archive_name}")
+        backed_up_count += 1
       end
+      # rubocop:enable Metrics/BlockLength
 
-      puts "✓ Per-file backup completed: #{files_to_backup.size} file(s) backed up"
+      if skipped_count.positive?
+        puts "✓ Per-file backup completed: #{backed_up_count} file(s) backed up, #{skipped_count} skipped (unchanged)"
+      else
+        puts "✓ Per-file backup completed: #{backed_up_count} file(s) backed up"
+      end
 
       # NOTE: remove_source handled per file after successful backup
       remove_source_files if remove_source
     end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength, Metrics/PerceivedComplexity, Metrics/BlockNesting
 
     def collect_files_from_paths(paths, exclude_patterns)
       require "find"
@@ -178,12 +239,21 @@ module Ruborg
       end
     end
 
+    def calculate_file_hash(file_path)
+      require "digest"
+      Digest::SHA256.file(file_path).hexdigest
+    end
+
     def build_per_file_create_command(archive_name, file_path)
       cmd = [@repository.borg_path, "create"]
       cmd += ["--compression", @config.compression]
 
-      # Store original path in archive comment for retrieval
-      cmd += ["--comment", file_path]
+      # Store file metadata (path + size + hash) in archive comment for duplicate detection
+      # Format: path|||size|||hash (using ||| as delimiter to avoid conflicts with paths)
+      file_size = File.size(file_path)
+      file_hash = calculate_file_hash(file_path)
+      metadata = "#{file_path}|||#{file_size}|||#{file_hash}"
+      cmd += ["--comment", metadata]
 
       cmd << "#{@repository.path}::#{archive_name}"
       cmd << file_path
@@ -333,9 +403,93 @@ module Ruborg
     end
 
     def print_repository_header
-      puts "\n" + ("=" * 60)
+      puts "\n#{"=" * 60}"
       puts "  Repository: #{@repo_name}"
       puts "=" * 60
+    end
+
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/PerceivedComplexity
+    def get_existing_archive_names
+      require "json"
+      require "open3"
+
+      # First get list of archives
+      cmd = [@repository.borg_path, "list", @repository.path, "--json"]
+      env = {}
+      passphrase = @repository.instance_variable_get(:@passphrase)
+      env["BORG_PASSPHRASE"] = passphrase if passphrase
+      env["BORG_RELOCATED_REPO_ACCESS_IS_OK"] = "yes"
+      env["BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK"] = "yes"
+
+      stdout, stderr, status = Open3.capture3(env, *cmd)
+      raise BorgError, "Failed to list archives: #{stderr}" unless status.success?
+
+      json_data = JSON.parse(stdout)
+      archives = json_data["archives"] || []
+
+      # Build hash by querying each archive individually for comment
+      # This is necessary because 'borg list' doesn't include comments
+      archives.each_with_object({}) do |archive, hash|
+        archive_name = archive["name"]
+
+        # Query this specific archive to get the comment
+        info_cmd = [@repository.borg_path, "info", "#{@repository.path}::#{archive_name}", "--json"]
+        info_stdout, _, info_status = Open3.capture3(env, *info_cmd)
+
+        unless info_status.success?
+          # If we can't get info for this archive, skip it with defaults
+          hash[archive_name] = { path: "", size: 0, hash: "" }
+          next
+        end
+
+        info_data = JSON.parse(info_stdout)
+        archive_info = info_data["archives"]&.first || {}
+        comment = archive_info["comment"] || ""
+
+        # Parse comment based on format
+        # The comment field stores metadata as: path|||size|||hash (using ||| as delimiter)
+        # For backward compatibility, handle old formats:
+        #   - Old format 1: plain path (no |||)
+        #   - Old format 2: path|||hash (2 parts)
+        #   - New format: path|||size|||hash (3 parts)
+        if comment.include?("|||")
+          parts = comment.split("|||")
+          file_path = parts[0]
+          if parts.length >= 3
+            # New format: path|||size|||hash
+            file_size = parts[1].to_i
+            file_hash = parts[2] || ""
+          else
+            # Old format: path|||hash (size not available)
+            file_size = 0
+            file_hash = parts[1] || ""
+          end
+        else
+          # Oldest format: comment is just the path string
+          file_path = comment
+          file_size = 0
+          file_hash = ""
+        end
+
+        hash[archive_name] = {
+          path: file_path,
+          size: file_size,
+          hash: file_hash
+        }
+      end
+    rescue JSON::ParserError => e
+      raise BorgError, "Failed to parse archive info: #{e.message}"
+    end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength, Metrics/PerceivedComplexity
+
+    def find_next_version_name(base_name, existing_archives)
+      version = 2
+      loop do
+        versioned_name = "#{base_name}-v#{version}"
+        return versioned_name unless existing_archives.key?(versioned_name)
+
+        version += 1
+      end
     end
   end
 end

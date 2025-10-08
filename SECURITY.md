@@ -229,6 +229,21 @@ We will respond within 48 hours and work with you to address the issue.
 
 ## Security Audit History
 
+- **v0.7.1** (2025-10-08): Paranoid mode duplicate detection - security review passed
+  - **NEW FEATURE**: SHA256 content hashing for detecting file changes even when mtime/size are identical
+  - **NEW FEATURE**: Smart skip statistics showing backed-up and skipped file counts
+  - **BUG FIX**: Fixed "Archive already exists" error in per-file backup mode
+  - **ENHANCED**: Archive comment format now stores comprehensive metadata (`path|||size|||hash`)
+  - **ENHANCED**: Version suffix generation for archive name collisions (`-v2`, `-v3`)
+  - **SECURITY REVIEW**: Comprehensive security analysis found no exploitable vulnerabilities
+  - SHA256 hashing is cryptographically secure (using Ruby's Digest::SHA256)
+  - Archive comment parsing uses safe string splitting with `|||` delimiter (no injection risks)
+  - File paths from archives only used for comparison, never for file operations
+  - Array-based command execution prevents shell injection (maintained from previous versions)
+  - JSON parsing uses Ruby's safe `JSON.parse()` with error handling
+  - All existing security controls maintained - no security regressions
+  - Backward compatibility with three metadata formats (plain path, path|||hash, path|||size|||hash)
+
 - **v0.7.0** (2025-10-08): Archive naming and metadata features - security review passed
   - **NEW FEATURE**: List files within archives (--archive option)
   - **NEW FEATURE**: File metadata retrieval from archives

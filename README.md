@@ -25,7 +25,7 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 📈 **Summary View** - Quick overview of all repositories and their configurations
 - 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
 - 🏠 **Hostname Validation** - NEW! Restrict backups to specific hosts (global or per-repository)
-- ✅ **Well-tested** - Comprehensive test suite with RSpec (220+ examples)
+- ✅ **Well-tested** - Comprehensive test suite with RSpec (286+ examples)
 - 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites
@@ -775,9 +775,12 @@ repositories:
 
 **How it works:**
 - **Per-File Archives**: Each file is backed up as a separate Borg archive
-- **Hash-Based Naming**: Archives are named `repo-{hash}-{timestamp}` (hash uniquely identifies the file path)
-- **Original Path Stored**: The complete original file path is stored in the archive comment
+- **Hash-Based Naming**: Archives are named `repo-filename-{hash}-{timestamp}` (hash uniquely identifies the file path)
+- **Metadata Storage**: Archive comments store `path|||size|||hash` for comprehensive duplicate detection
 - **Metadata Preservation**: Borg preserves all file metadata (mtime, size, permissions) in the archive
+- **Paranoid Mode Duplicate Detection** (v0.7.1+): SHA256 content hashing detects file changes even when size and mtime are identical
+- **Smart Skip**: Automatically skips unchanged files during backup (compares path, size, and content hash)
+- **Version Suffixes**: Creates versioned archives (`-v2`, `-v3`) for archive name collisions, preventing data loss
 - **Smart Pruning**: Retention reads file mtime directly from archives - works even after files are deleted
 
 **File Metadata Retention Options:**

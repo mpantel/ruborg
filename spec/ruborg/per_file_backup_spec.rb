@@ -16,6 +16,16 @@ RSpec.describe "Per-file backup mode", :borg do
     FileUtils.mkdir_p(source_dir)
   end
 
+  # Helper to capture stdout
+  def capture_output
+    original_stdout = $stdout
+    $stdout = StringIO.new
+    yield
+    $stdout.string
+  ensure
+    $stdout = original_stdout
+  end
+
   describe "Per-file archive creation" do
     it "creates separate archives for each file" do
       # Create test files
@@ -66,7 +76,12 @@ RSpec.describe "Per-file backup mode", :borg do
       output = `BORG_PASSPHRASE=#{passphrase} borg info #{repo_path}::#{archive_name} --json 2>&1`
       json_info = JSON.parse(output)
 
-      expect(json_info["archives"].first["comment"]).to eq(test_file)
+      # Comment format is "path|||size|||hash", extract the path
+      comment = json_info["archives"].first["comment"]
+      stored_path = comment.split("|||").first
+
+      expect(stored_path).to eq(test_file)
+      expect(comment).to include("|||") # New format with size and hash
     end
 
     it "generates unique hash-based archive names" do
@@ -128,6 +143,165 @@ RSpec.describe "Per-file backup mode", :borg do
       expect do
         backup.create
       end.to raise_error(Ruborg::BorgError, /No files found to backup/)
+    end
+  end
+
+  describe "Duplicate detection and hash verification" do
+    it "skips files with unchanged content (same path, size, and hash)" do
+      test_file = File.join(source_dir, "test.txt")
+      File.write(test_file, "original content")
+
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      config = double("config",
+                      backup_paths: [source_dir],
+                      exclude_patterns: [],
+                      compression: "lz4")
+
+      backup = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+
+      # First backup
+      backup.create
+
+      # Verify archive was created with hash metadata
+      list_output = `BORG_PASSPHRASE=#{passphrase} borg list #{repo_path} --json 2>&1`
+      json_data = JSON.parse(list_output)
+      expect(json_data["archives"].length).to eq(1)
+
+      archive_name = json_data["archives"].first["name"]
+      info_output = `BORG_PASSPHRASE=#{passphrase} borg info #{repo_path}::#{archive_name} --json 2>&1`
+      json_info = JSON.parse(info_output)
+      comment = json_info["archives"].first["comment"]
+
+      expect(comment).to include("|||") # New format with hash
+      expect(comment).to start_with(test_file)
+
+      # Second backup (file unchanged) - create new backup instance to simulate real usage
+      backup2 = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+      output = capture_output { backup2.create }
+
+      # Should skip the file
+      expect(output).to include("Archive already exists (file unchanged)")
+      expect(output).to include("1 skipped (unchanged)")
+
+      # Verify no new archive was created
+      list_output = `BORG_PASSPHRASE=#{passphrase} borg list #{repo_path} --json 2>&1`
+      json_data = JSON.parse(list_output)
+      expect(json_data["archives"].length).to eq(1)
+    end
+
+    it "creates versioned archive when content changes but size and mtime stay the same" do
+      test_file = File.join(source_dir, "test.txt")
+      File.write(test_file, "content1") # 8 bytes
+
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      config = double("config",
+                      backup_paths: [source_dir],
+                      exclude_patterns: [],
+                      compression: "lz4")
+
+      backup = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+
+      # First backup
+      backup.create
+
+      # Get original mtime
+      original_mtime = File.mtime(test_file)
+
+      # Change content but keep same size and reset mtime
+      File.write(test_file, "newstuff") # Also 8 bytes
+      File.utime(original_mtime, original_mtime, test_file)
+
+      # Second backup - create new instance to simulate real usage
+      backup2 = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+      backup2.create
+
+      # Verify two archives exist (original + versioned)
+      list_output = `BORG_PASSPHRASE=#{passphrase} borg list #{repo_path} --json 2>&1`
+      json_data = JSON.parse(list_output)
+      expect(json_data["archives"].length).to eq(2)
+
+      # Verify one has version suffix
+      archive_names = json_data["archives"].map { |a| a["name"] }
+      versioned = archive_names.find { |name| name.end_with?("-v2") }
+      expect(versioned).not_to be_nil
+    end
+
+    it "creates versioned archive when size changes but mtime stays the same" do
+      test_file = File.join(source_dir, "test.txt")
+      File.write(test_file, "short")
+
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      config = double("config",
+                      backup_paths: [source_dir],
+                      exclude_patterns: [],
+                      compression: "lz4")
+
+      backup = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+
+      # First backup
+      backup.create
+
+      # Get original mtime
+      original_mtime = File.mtime(test_file)
+
+      # Change content with different size but reset mtime
+      File.write(test_file, "much longer content here")
+      File.utime(original_mtime, original_mtime, test_file)
+
+      # Second backup - create new instance to simulate real usage
+      backup2 = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+      backup2.create
+
+      # Verify two archives exist
+      list_output = `BORG_PASSPHRASE=#{passphrase} borg list #{repo_path} --json 2>&1`
+      json_data = JSON.parse(list_output)
+      expect(json_data["archives"].length).to eq(2)
+
+      # Verify one has version suffix
+      archive_names = json_data["archives"].map { |a| a["name"] }
+      versioned = archive_names.find { |name| name.end_with?("-v2") }
+      expect(versioned).not_to be_nil
+    end
+
+    it "handles backward compatibility with old format archives (no hash in comment)" do
+      test_file = File.join(source_dir, "test.txt")
+      File.write(test_file, "content")
+
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      # Manually create an old-format archive (comment = plain path, no hash)
+      archive_name = "test-legacy-archive"
+      `BORG_PASSPHRASE=#{passphrase} borg create --compression lz4 --comment "#{test_file}" #{repo_path}::#{archive_name} #{test_file} 2>&1`
+
+      config = double("config",
+                      backup_paths: [source_dir],
+                      exclude_patterns: [],
+                      compression: "lz4")
+
+      backup = Ruborg::Backup.new(repo, config: config, retention_mode: "per_file", repo_name: "test")
+
+      # Should create a new archive (old format has no hash, can't verify)
+      expect { backup.create }.not_to raise_error
+
+      # Verify new archive was created with hash
+      list_output = `BORG_PASSPHRASE=#{passphrase} borg list #{repo_path} --json 2>&1`
+      json_data = JSON.parse(list_output)
+      expect(json_data["archives"].length).to eq(2)
+
+      # Find the new archive (not the legacy one)
+      new_archive = json_data["archives"].find { |a| a["name"] != archive_name }
+      info_output = `BORG_PASSPHRASE=#{passphrase} borg info #{repo_path}::#{new_archive["name"]} --json 2>&1`
+      json_info = JSON.parse(info_output)
+      comment = json_info["archives"].first["comment"]
+
+      expect(comment).to include("|||") # New format
     end
   end
 
