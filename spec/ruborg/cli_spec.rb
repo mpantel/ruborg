@@ -88,8 +88,19 @@ RSpec.describe Ruborg::CLI do
       end.to output(/Backup created/).to_stdout
     end
 
-    it "removes source files when --remove-source is specified" do
+    it "removes source files when --remove-source is specified and allowed" do
       source_file = File.join(tmpdir, "backup_source", "test.txt")
+
+      # Update config to allow remove_source
+      updated_config = config_data.merge(
+        "allow_remove_source" => true,
+        "passbolt" => { "resource_id" => "test-id" }
+      )
+      File.write(config_file, updated_config.to_yaml)
+
+      # Re-mock passbolt since we overwrote the config
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
 
       described_class.start(["backup", "--config", config_file, "--repository", "test-repo", "--remove-source"])
 
@@ -329,6 +340,440 @@ RSpec.describe Ruborg::CLI do
         expect do
           described_class.start(["backup", "--config", config_file_with_wrong_repo_hostname, "--repository", "test-repo"])
         end.to raise_error(SystemExit)
+      end
+    end
+  end
+
+  describe "allow_remove_source validation", :borg do
+    let(:current_hostname) { `hostname`.strip }
+
+    before do
+      # Create repository first
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      # Create source files
+      FileUtils.mkdir_p(File.join(tmpdir, "backup_source"))
+      File.write(File.join(tmpdir, "backup_source", "test.txt"), "content")
+    end
+
+    context "when allow_remove_source is enabled" do
+      it "allows --remove-source option" do
+        config_with_allow = config_data.merge(
+          "allow_remove_source" => true,
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_with_allow = create_test_config(config_with_allow)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_allow, "--repository", "test-repo", "--remove-source"])
+        end.to output(/Sources removed/).to_stdout
+      end
+    end
+
+    context "when allow_remove_source is not enabled" do
+      it "prevents --remove-source option" do
+        config_without_allow = config_data.merge(
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_without_allow = create_test_config(config_without_allow)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_without_allow, "--repository", "test-repo", "--remove-source"])
+        end.to raise_error(SystemExit)
+      end
+
+      it "does not prevent backup without --remove-source" do
+        config_without_allow = config_data.merge(
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_without_allow = create_test_config(config_without_allow)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_without_allow, "--repository", "test-repo"])
+        end.to output(/Backup created/).to_stdout
+      end
+    end
+
+    context "when repository-specific allow_remove_source is enabled" do
+      it "allows --remove-source for specific repository" do
+        config_with_repo_allow = {
+          "allow_remove_source" => false, # Global disabled
+          "compression" => "lz4",
+          "passbolt" => { "resource_id" => "test-id" },
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "allow_remove_source" => true, # But enabled for this repo
+              "path" => repo_path,
+              "sources" => [
+                {
+                  "name" => "main",
+                  "paths" => [File.join(tmpdir, "backup_source")]
+                }
+              ]
+            }
+          ]
+        }
+        config_file_with_repo_allow = create_test_config(config_with_repo_allow)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_repo_allow, "--repository", "test-repo", "--remove-source"])
+        end.to output(/Sources removed/).to_stdout
+      end
+    end
+
+    context "when allow_remove_source has type confusion values" do
+      it "blocks string 'false'" do
+        config_with_string_false = config_data.merge(
+          "allow_remove_source" => "false",
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_with_string = create_test_config(config_with_string_false)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_string, "--repository", "test-repo", "--remove-source"])
+        end.to raise_error(SystemExit)
+      end
+
+      it "blocks string 'true'" do
+        config_with_string_true = config_data.merge(
+          "allow_remove_source" => "true",
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_with_string = create_test_config(config_with_string_true)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_string, "--repository", "test-repo", "--remove-source"])
+        end.to raise_error(SystemExit)
+      end
+
+      it "blocks integer 1" do
+        config_with_int = config_data.merge(
+          "allow_remove_source" => 1,
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_with_int = create_test_config(config_with_int)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_int, "--repository", "test-repo", "--remove-source"])
+        end.to raise_error(SystemExit)
+      end
+
+      it "blocks empty string" do
+        config_with_empty = config_data.merge(
+          "allow_remove_source" => "",
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_with_empty = create_test_config(config_with_empty)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_empty, "--repository", "test-repo", "--remove-source"])
+        end.to raise_error(SystemExit)
+      end
+
+      it "blocks nil value" do
+        config_with_nil = config_data.merge(
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        # Don't set allow_remove_source at all (nil)
+        config_file_with_nil = create_test_config(config_with_nil)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_nil, "--repository", "test-repo", "--remove-source"])
+        end.to raise_error(SystemExit)
+      end
+
+      it "blocks boolean false" do
+        config_with_false = config_data.merge(
+          "allow_remove_source" => false,
+          "passbolt" => { "resource_id" => "test-id" }
+        )
+        config_file_with_false = create_test_config(config_with_false)
+
+        # Mock passbolt
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["backup", "--config", config_file_with_false, "--repository", "test-repo", "--remove-source"])
+        end.to raise_error(SystemExit)
+      end
+    end
+  end
+
+  describe "validate command" do
+    context "with valid configuration" do
+      it "passes validation with no errors" do
+        valid_config = {
+          "compression" => "lz4",
+          "auto_init" => true,
+          "auto_prune" => false,
+          "allow_remove_source" => false,
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "auto_init" => true,
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(valid_config)
+
+        expect do
+          described_class.start(["validate", "--config", config_file])
+        end.to output(/Configuration is valid/).to_stdout
+      end
+    end
+
+    context "with type confusion in allow_remove_source" do
+      it "detects string 'true' instead of boolean" do
+        invalid_config = {
+          "allow_remove_source" => "true",
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(invalid_config)
+
+        expect do
+          described_class.start(["validate", "--config", config_file])
+        end.to raise_error(SystemExit) do |error|
+          expect(error.status).to eq(1)
+        end
+      end
+
+      it "detects string 'false' instead of boolean" do
+        invalid_config = {
+          "allow_remove_source" => "false",
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(invalid_config)
+
+        expect do
+          described_class.start(["validate", "--config", config_file])
+        end.to raise_error(SystemExit) do |error|
+          expect(error.status).to eq(1)
+        end
+      end
+
+      it "detects integer 1 instead of boolean" do
+        invalid_config = {
+          "auto_init" => 1,
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(invalid_config)
+
+        expect do
+          described_class.start(["validate", "--config", config_file])
+        end.to raise_error(SystemExit) do |error|
+          expect(error.status).to eq(1)
+        end
+      end
+    end
+
+    context "with type confusion in auto_init" do
+      it "detects string value in auto_init" do
+        invalid_config = {
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "auto_init" => "yes",
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(invalid_config)
+
+        expect do
+          described_class.start(["validate", "--config", config_file])
+        end.to raise_error(SystemExit) do |error|
+          expect(error.status).to eq(1)
+        end
+      end
+    end
+
+    context "with type confusion in auto_prune" do
+      it "detects string value in auto_prune" do
+        invalid_config = {
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "auto_prune" => "true",
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(invalid_config)
+
+        expect do
+          described_class.start(["validate", "--config", config_file])
+        end.to raise_error(SystemExit) do |error|
+          expect(error.status).to eq(1)
+        end
+      end
+    end
+
+    context "with warnings for borg_options" do
+      it "shows warnings for non-boolean borg_options but doesn't fail" do
+        config_with_warnings = {
+          "borg_options" => {
+            "allow_relocated_repo" => "yes",
+            "allow_unencrypted_repo" => 1
+          },
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(config_with_warnings)
+
+        expect do
+          described_class.start(["validate", "--config", config_file])
+        end.to output(/WARNINGS/).to_stdout
+      end
+    end
+
+    context "with multiple errors" do
+      it "reports errors on config load" do
+        multi_error_config = {
+          "auto_init" => "true",
+          "auto_prune" => 1,
+          "allow_remove_source" => "false",
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "auto_init" => "yes",
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(multi_error_config)
+
+        # Schema validation happens on config load, so it exits before validate command runs
+        expect do
+          described_class.start(["validate", "--config", config_file])
+        end.to raise_error(SystemExit)
+      end
+    end
+  end
+
+  describe "schema validation on config load" do
+    context "when loading config with type errors" do
+      it "fails on config load when allow_remove_source has wrong type" do
+        invalid_config = {
+          "allow_remove_source" => "true",
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(invalid_config)
+
+        expect do
+          described_class.start(["info", "--config", config_file])
+        end.to raise_error(SystemExit)
+      end
+
+      it "fails on config load when auto_init has wrong type" do
+        invalid_config = {
+          "auto_init" => 1,
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(invalid_config)
+
+        expect do
+          described_class.start(["info", "--config", config_file])
+        end.to raise_error(SystemExit)
+      end
+    end
+
+    context "with valid types" do
+      it "loads config successfully" do
+        valid_config = {
+          "auto_init" => true,
+          "auto_prune" => false,
+          "repositories" => [
+            {
+              "name" => "test-repo",
+              "path" => repo_path,
+              "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+            }
+          ]
+        }
+        config_file = create_test_config(valid_config)
+
+        expect do
+          described_class.start(["info", "--config", config_file])
+        end.to output(/RUBORG REPOSITORIES SUMMARY/).to_stdout
       end
     end
   end

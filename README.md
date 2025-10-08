@@ -25,7 +25,7 @@ e- ⏰ **Retention Policies** - Configure backup retention (hourly, daily, weekl
 - 📈 **Summary View** - Quick overview of all repositories and their configurations
 - 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
 - 🏠 **Hostname Validation** - NEW! Restrict backups to specific hosts (global or per-repository)
-- ✅ **Well-tested** - Comprehensive test suite with RSpec (153 tests)
+- ✅ **Well-tested** - Comprehensive test suite with RSpec (178+ tests)
 - 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites
@@ -162,14 +162,54 @@ repositories:
 ```
 
 **Configuration Features:**
+- **Automatic Type Validation**: Configuration is validated on startup to catch type errors early
+- **Validation Command**: Run `ruborg validate` to check configuration files for errors
 - **Descriptions**: Add `description` field to document each repository's purpose
 - **Hostname Validation**: Optional `hostname` field to restrict backups to specific hosts (global or per-repository)
-- **Global Settings**: Hostname, compression, encryption, auto_init, log_file, borg_path, borg_options, and retention apply to all repositories
-- **Per-Repository Overrides**: Any global setting can be overridden at the repository level (including hostname and custom borg_path)
+- **Source Deletion Safety**: `allow_remove_source` flag to explicitly enable `--remove-source` option (default: disabled)
+- **Type-Safe Booleans**: Strict boolean validation prevents configuration errors (must use `true`/`false`, not strings)
+- **Global Settings**: Hostname, compression, encryption, auto_init, allow_remove_source, log_file, borg_path, borg_options, and retention apply to all repositories
+- **Per-Repository Overrides**: Any global setting can be overridden at the repository level (including hostname, allow_remove_source, and custom borg_path)
 - **Custom Borg Path**: Specify a custom Borg executable path if borg is not in PATH or to use a specific version
 - **Retention Policies**: Define how many backups to keep (hourly, daily, weekly, monthly, yearly)
 - **Multiple Sources**: Each repository can have multiple backup sources with their own exclude patterns
 - **Flexible Organization**: Organize backups by type (documents, databases, media) with different policies
+
+## Configuration Validation
+
+Ruborg automatically validates your configuration on startup. All commands check for type errors and structural issues before executing.
+
+### Validate Configuration
+
+Check your configuration file for errors:
+
+```bash
+ruborg validate --config ruborg.yml
+```
+
+**Validation checks:**
+- Boolean types (must be `true` or `false`, not strings like `'true'`)
+- Valid compression values (lz4, zstd, zlib, lzma, none)
+- Valid encryption modes
+- Required repository fields (name, path)
+- Correct borg_options values
+
+**Example validation output:**
+
+```
+✓ Configuration is valid
+  No type errors or warnings found
+```
+
+Or with errors:
+
+```
+❌ ERRORS FOUND (2):
+  - global/auto_init: must be boolean (true or false), got String: "true"
+  - test-repo/allow_remove_source: must be boolean (true or false), got Integer: 1
+
+Configuration has errors that must be fixed.
+```
 
 ## Usage
 
@@ -198,8 +238,46 @@ ruborg backup --repository databases --name "db-backup-2025-10-05"
 # Using custom configuration file
 ruborg backup --config /path/to/config.yml --repository documents
 
-# Remove source files after successful backup
+# Remove source files after successful backup (requires allow_remove_source: true)
 ruborg backup --repository documents --remove-source
+```
+
+**IMPORTANT: Source File Deletion Safety**
+
+The `--remove-source` option is disabled by default for safety. To use it, you must explicitly enable it in your configuration:
+
+```yaml
+# Global setting - applies to all repositories
+allow_remove_source: true
+
+# OR per-repository setting
+repositories:
+  - name: temp-backups
+    allow_remove_source: true  # Only for this repository
+    ...
+```
+
+**⚠️ TYPE SAFETY WARNING:** The value MUST be a boolean `true`, not a string:
+
+```yaml
+# ✅ CORRECT - Boolean true
+allow_remove_source: true
+
+# ❌ WRONG - String 'true' (will be rejected)
+allow_remove_source: 'true'
+allow_remove_source: "true"
+
+# ❌ WRONG - Other truthy values (will be rejected)
+allow_remove_source: 1
+allow_remove_source: yes
+```
+
+Ruborg uses strict type checking to prevent configuration errors. Only the boolean value `true` (unquoted) will enable source deletion. Any other value, including string `'true'` or `"true"`, will be rejected with a detailed error message showing the actual type received.
+
+Without `allow_remove_source: true` configured, using `--remove-source` will result in an error:
+```
+Error: Cannot use --remove-source: 'allow_remove_source' must be true (boolean).
+Current value: "true" (String). Set 'allow_remove_source: true' in configuration.
 ```
 
 ### List Archives
@@ -437,6 +515,7 @@ See [SECURITY.md](SECURITY.md) for detailed security information and best practi
 | Command | Description | Options |
 |---------|-------------|---------|
 | `init REPOSITORY` | Initialize a new Borg repository | `--passphrase`, `--passbolt-id`, `--log` |
+| `validate` | Validate configuration file for type errors | `--config`, `--log` |
 | `backup` | Create a backup using config file | `--config`, `--repository`, `--all`, `--name`, `--remove-source`, `--log` |
 | `list` | List all archives in repository | `--config`, `--repository`, `--log` |
 | `restore ARCHIVE` | Restore files from archive | `--config`, `--repository`, `--destination`, `--path`, `--log` |

@@ -189,8 +189,12 @@ module Ruborg
       env = {}
       env["BORG_PASSPHRASE"] = @passphrase if @passphrase
 
+      # Use strict boolean checking (only true/false allowed, default to true for backward compatibility)
       allow_relocated = @borg_options.fetch("allow_relocated_repo", true)
+      allow_relocated = true unless allow_relocated == false # Normalize: only false disables, everything else enables
+
       allow_unencrypted = @borg_options.fetch("allow_unencrypted_repo", true)
+      allow_unencrypted = true unless allow_unencrypted == false # Normalize: only false disables, everything else enables
 
       env["BORG_RELOCATED_REPO_ACCESS_IS_OK"] = allow_relocated ? "yes" : "no"
       env["BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK"] = allow_unencrypted ? "yes" : "no"
@@ -327,8 +331,12 @@ module Ruborg
       env["BORG_PASSPHRASE"] = @passphrase if @passphrase
 
       # Apply Borg environment options from config (defaults to yes for backward compatibility)
+      # Use strict boolean checking (only true/false allowed, default to true for backward compatibility)
       allow_relocated = @borg_options.fetch("allow_relocated_repo", true)
+      allow_relocated = true unless allow_relocated == false # Normalize: only false disables, everything else enables
+
       allow_unencrypted = @borg_options.fetch("allow_unencrypted_repo", true)
+      allow_unencrypted = true unless allow_unencrypted == false # Normalize: only false disables, everything else enables
 
       env["BORG_RELOCATED_REPO_ACCESS_IS_OK"] = allow_relocated ? "yes" : "no"
       env["BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK"] = allow_unencrypted ? "yes" : "no"

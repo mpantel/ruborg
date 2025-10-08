@@ -11,6 +11,7 @@ compression: lz4          # Options: lz4 (fast), zstd (balanced), lzma (high com
 encryption: repokey       # Options: repokey, keyfile, none (NOT recommended)
 auto_init: true           # Automatically initialize repositories on first use
 auto_prune: true          # Automatically prune old backups after each backup
+allow_remove_source: false # Allow --remove-source flag to delete source files after backup (default: false)
 log_file: ~/.ruborg/logs/ruborg.log  # Log file path (optional)
 
 # Custom Borg executable path (optional)

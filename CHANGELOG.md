@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-10-08
+
+### Added
+- **Configuration Validation Command**: New `ruborg validate` command to check configuration files for type errors
+- **Automatic Schema Validation**: All commands now validate configuration on startup to catch errors early
+- **Strict Boolean Type Checking**: All boolean config values (auto_init, auto_prune, allow_remove_source, etc.) now require actual boolean types
+  - Prevents type confusion attacks where strings like `'true'` or `"false"` bypass security checks
+  - Clear error messages show actual type vs expected type
+  - Validation runs automatically on config load
+- Comprehensive validation test suite (10 new test cases)
+- Documentation for configuration validation in README
+
+### Changed
+- Boolean configuration values now use strict type checking throughout the codebase
+  - `auto_init`: only boolean `true` enables, everything else disables
+  - `auto_prune`: only boolean `true` enables, everything else disables
+  - `allow_remove_source`: strict checking - only `TrueClass` enables (security-critical)
+  - `allow_relocated_repo`: permissive normalization - only `false` disables (backward compatible)
+  - `allow_unencrypted_repo`: permissive normalization - only `false` disables (backward compatible)
+- Config class now validates schema by default (can be disabled with `validate_types: false`)
+
+### Security
+- **Type Confusion Protection (CWE-843)**: Strict boolean type checking prevents configuration bypass attacks
+  - Before: `allow_remove_source: 'false'` (string) would be truthy and enable deletion
+  - After: Only `allow_remove_source: true` (boolean) enables the dangerous operation
+- Enhanced error messages guide users to fix type errors correctly
+- SECURITY.md updated with type confusion findings and mitigations
+
 ## [0.5.0] - 2025-10-08
 
 ### Added
