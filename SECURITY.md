@@ -229,6 +229,17 @@ We will respond within 48 hours and work with you to address the issue.
 
 ## Security Audit History
 
+- **v0.7.0** (2025-10-08): Archive naming and metadata features - security review passed
+  - **NEW FEATURE**: List files within archives (--archive option)
+  - **NEW FEATURE**: File metadata retrieval from archives
+  - **NEW FEATURE**: Enhanced archive naming with filenames in per-file mode
+  - **SECURITY REVIEW**: Comprehensive security analysis found no exploitable vulnerabilities
+  - Archive name sanitization uses whitelist approach `[a-zA-Z0-9._-]`
+  - Array-based command execution prevents shell injection
+  - Safe JSON parsing without deserialization risks
+  - Path normalization handles borg's format safely (strips leading slash for matching only)
+  - All new features maintain existing security controls
+
 - **v0.6.1** (2025-10-08): Enhanced logging with sensitive data protection
   - **NEW FEATURE**: Comprehensive logging for backup operations, restoration, and deletion
   - Passwords and passphrases are NEVER logged (neither CLI nor Passbolt passwords)

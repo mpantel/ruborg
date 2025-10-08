@@ -191,22 +191,22 @@ RSpec.describe Ruborg::Backup do
 
         backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test", logger: logger)
 
-        expect(logger).to receive(:info).with(/Per-file mode: Found 2 file\(s\) to backup/)
-        expect(logger).to receive(:info).with(/Backing up file 1\/2:/)
-        expect(logger).to receive(:info).with(/Backing up file 2\/2:/)
-        expect(logger).to receive(:info).with(/Per-file backup completed: 2 file\(s\) backed up/)
+        # Expect actual log messages that match implementation
+        expect(logger).to receive(:info).with(/\[test\] Archived.*file1\.txt/).ordered
+        expect(logger).to receive(:info).with(/\[test\] Archived.*file2\.txt/).ordered
 
         backup.create
       end
 
-      it "logs file count in per-file mode" do
+      it "logs file archived in per-file mode" do
         source_dir = File.join(tmpdir, "source")
         FileUtils.mkdir_p(source_dir)
         create_test_file("source/test.txt", "content")
 
         backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test", logger: logger)
 
-        expect(logger).to receive(:info).with(/Per-file mode: Found 1 file\(s\) to backup/)
+        # Expect actual log message that matches implementation
+        expect(logger).to receive(:info).with(/\[test\] Archived.*test\.txt/)
 
         backup.create
       end
@@ -344,6 +344,273 @@ RSpec.describe Ruborg::Backup do
           backup.send(:remove_source_files)
         end.to raise_error(Ruborg::BorgError, /Refusing to delete system path/)
       end
+    end
+  end
+
+  describe "archive name truncation" do
+    let(:backup) { described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test") }
+
+    describe "#truncate_with_extension" do
+      it "returns filename unchanged if within max length" do
+        result = backup.send(:truncate_with_extension, "short.txt", 50)
+        expect(result).to eq("short.txt")
+      end
+
+      it "truncates basename while preserving extension" do
+        long_filename = "very-long-database-name-with-many-tables.sql"
+        result = backup.send(:truncate_with_extension, long_filename, 30)
+
+        expect(result).to end_with(".sql")
+        expect(result.length).to eq(30)
+        expect(result).to match(/^very-long-database-name-wi\.sql$/)
+      end
+
+      it "truncates entire filename if extension is too long" do
+        filename = "file.verylongextension"
+        result = backup.send(:truncate_with_extension, filename, 10)
+
+        expect(result.length).to eq(10)
+        expect(result).to eq("file.veryl")
+      end
+
+      it "handles files without extension" do
+        result = backup.send(:truncate_with_extension, "very-long-filename-without-extension", 20)
+
+        expect(result.length).to eq(20)
+        expect(result).to eq("very-long-filename-w")
+      end
+
+      it "handles files starting with dot" do
+        result = backup.send(:truncate_with_extension, ".gitignore", 8)
+
+        expect(result.length).to eq(8)
+        expect(result).to eq(".gitigno")
+      end
+
+      it "returns empty string for zero max_length" do
+        result = backup.send(:truncate_with_extension, "filename.txt", 0)
+        expect(result).to eq("")
+      end
+
+      it "handles filenames with multiple dots" do
+        result = backup.send(:truncate_with_extension, "archive.tar.gz", 10)
+
+        expect(result).to end_with(".gz")
+        expect(result.length).to eq(10)
+      end
+    end
+
+    describe "#build_archive_name" do
+      let(:timestamp) { "2025-10-08_19-05-07" }
+      let(:path_hash) { "8b4c26d05aae" }
+
+      it "builds normal archive name without truncation" do
+        result = backup.send(:build_archive_name, "test", "database.sql", path_hash, timestamp)
+
+        expect(result).to eq("test-database.sql-8b4c26d05aae-2025-10-08_19-05-07")
+        expect(result.length).to be <= 255
+      end
+
+      it "truncates long filename to fit 255 character limit" do
+        long_filename = "a" * 300 + ".sql"
+        result = backup.send(:build_archive_name, "test", long_filename, path_hash, timestamp)
+
+        expect(result.length).to eq(255)
+        expect(result).to include(".sql")
+        expect(result).to start_with("test-")
+        expect(result).to include(path_hash)
+        expect(result).to include(timestamp)
+      end
+
+      it "handles very long repository name" do
+        long_repo_name = "very-long-repository-name-" * 5
+        result = backup.send(:build_archive_name, long_repo_name, "file.txt", path_hash, timestamp)
+
+        expect(result.length).to be <= 255
+        expect(result).to start_with(long_repo_name)
+        expect(result).to include(path_hash)
+        expect(result).to include(timestamp)
+      end
+
+      it "preserves extension when truncating" do
+        long_filename = "very-long-database-name-with-many-tables-and-descriptive-information" * 3 + ".sql"
+        result = backup.send(:build_archive_name, "databases", long_filename, path_hash, timestamp)
+
+        expect(result.length).to be <= 255
+        expect(result).to include(".sql")
+        expect(result).to include(path_hash)
+        expect(result).to end_with(timestamp)
+      end
+
+      it "handles filename with no extension" do
+        long_filename = "a" * 300
+        result = backup.send(:build_archive_name, "test", long_filename, path_hash, timestamp)
+
+        expect(result.length).to eq(255)
+        expect(result).to start_with("test-")
+      end
+
+      it "ensures all components are present in archive name" do
+        result = backup.send(:build_archive_name, "repo", "file.txt", path_hash, timestamp)
+
+        expect(result).to include("repo")
+        expect(result).to include("file.txt")
+        expect(result).to include(path_hash)
+        expect(result).to include(timestamp)
+      end
+    end
+
+    describe "per-file archive creation with long filenames", :borg do
+      it "creates archive with truncated name for very long filename" do
+        source_dir = File.join(tmpdir, "source")
+        FileUtils.mkdir_p(source_dir)
+
+        # Create file with very long name
+        long_filename = "very-long-database-backup-with-descriptive-name-" * 5 + ".sql"
+        create_test_file("source/#{long_filename}", "content")
+
+        backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test")
+
+        expect do
+          backup.create
+        end.not_to raise_error
+      end
+
+      it "preserves extension in archive name even for long filenames" do
+        source_dir = File.join(tmpdir, "source")
+        FileUtils.mkdir_p(source_dir)
+
+        long_filename = "a" * 250 + ".sql"
+        create_test_file("source/#{long_filename}", "content")
+
+        backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test")
+
+        # Mock to capture the archive name
+        allow(backup).to receive(:execute_borg_command) do |cmd|
+          archive_name = cmd.find { |arg| arg.include?("::") }&.split("::")&.last
+          expect(archive_name.length).to be <= 255
+          expect(archive_name).to include(".sql")
+          true
+        end
+
+        backup.create
+      end
+
+      it "uses file modification time in archive name (not backup creation time)" do
+        source_dir = File.join(tmpdir, "source")
+        FileUtils.mkdir_p(source_dir)
+
+        # Create a file and set its mtime to a specific past time
+        test_file = create_test_file("source/test.txt", "content")
+        past_time = Time.new(2024, 5, 15, 14, 30, 45)
+        File.utime(File.atime(test_file), past_time, test_file)
+
+        backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test")
+
+        # Mock to capture the archive name
+        archive_name_captured = nil
+        allow(backup).to receive(:execute_borg_command) do |cmd|
+          archive_name_captured = cmd.find { |arg| arg.include?("::") }&.split("::")&.last
+          true
+        end
+
+        backup.create
+
+        # Verify the archive name contains the file's mtime, not the current time
+        expect(archive_name_captured).to include("2024-05-15_14-30-45")
+        expect(archive_name_captured).not_to include(Time.now.strftime("%Y-%m-%d"))
+      end
+    end
+  end
+
+  describe "console output and logging", :borg do
+    let(:source_dir) { File.join(tmpdir, "source") }
+
+    before do
+      FileUtils.mkdir_p(source_dir)
+      File.write(File.join(source_dir, "file1.txt"), "content1")
+      File.write(File.join(source_dir, "file2.txt"), "content2")
+    end
+
+    it "shows repository header in console for standard backup" do
+      backup = described_class.new(repository, config: backup_config, repo_name: "test-repo")
+
+      expect do
+        backup.create
+      end.to output(/Repository: test-repo/).to_stdout
+    end
+
+    it "shows progress in console for standard backup" do
+      backup = described_class.new(repository, config: backup_config, repo_name: "test-repo")
+
+      expect do
+        backup.create
+      end.to output(/Creating archive/).to_stdout
+    end
+
+    it "shows completion message in console for standard backup" do
+      backup = described_class.new(repository, config: backup_config, repo_name: "test-repo")
+
+      expect do
+        backup.create
+      end.to output(/Archive created successfully/).to_stdout
+    end
+
+    it "logs archive creation with repository name", :borg do
+      logger = instance_double(Ruborg::RuborgLogger)
+      allow(logger).to receive(:info)
+
+      backup = described_class.new(repository, config: backup_config, repo_name: "test-repo", logger: logger)
+
+      expect(logger).to receive(:info).with(/\[test-repo\] Created archive/)
+
+      backup.create
+    end
+
+    it "shows repository header in console for per-file backup" do
+      backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo")
+
+      expect do
+        backup.create
+      end.to output(/Repository: test-repo/).to_stdout
+    end
+
+    it "shows file progress in console for per-file backup" do
+      backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo")
+
+      expect do
+        backup.create
+      end.to output(/\[1\/2\] Backing up:/).to_stdout
+    end
+
+    it "shows completion message for per-file backup" do
+      backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo")
+
+      expect do
+        backup.create
+      end.to output(/Per-file backup completed/).to_stdout
+    end
+
+    it "logs each file with repository name in per-file mode", :borg do
+      logger = instance_double(Ruborg::RuborgLogger)
+      allow(logger).to receive(:info)
+
+      backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo", logger: logger)
+
+      expect(logger).to receive(:info).with(/\[test-repo\] Archived.*in archive/).at_least(:once)
+
+      backup.create
+    end
+
+    it "does not log repository header separator to logs" do
+      logger = instance_double(Ruborg::RuborgLogger)
+      allow(logger).to receive(:info)
+
+      backup = described_class.new(repository, config: backup_config, repo_name: "test-repo", logger: logger)
+
+      expect(logger).not_to receive(:info).with(/===/)
+
+      backup.create
     end
   end
 end

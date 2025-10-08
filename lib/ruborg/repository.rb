@@ -41,6 +41,95 @@ module Ruborg
       execute_borg_command(cmd)
     end
 
+    def list_archive(archive_name)
+      raise BorgError, "Repository does not exist at #{@path}" unless exists?
+      raise BorgError, "Archive name cannot be empty" if archive_name.nil? || archive_name.strip.empty?
+
+      cmd = [@borg_path, "list", "#{@path}::#{archive_name}"]
+      execute_borg_command(cmd)
+    end
+
+    def get_archive_info(archive_name)
+      raise BorgError, "Repository does not exist at #{@path}" unless exists?
+      raise BorgError, "Archive name cannot be empty" if archive_name.nil? || archive_name.strip.empty?
+
+      require "json"
+      require "open3"
+
+      cmd = [@borg_path, "info", "#{@path}::#{archive_name}", "--json"]
+      env = build_borg_env
+
+      stdout, stderr, status = Open3.capture3(env, *cmd)
+      raise BorgError, "Failed to get archive info: #{stderr}" unless status.success?
+
+      JSON.parse(stdout)
+    rescue JSON::ParserError => e
+      raise BorgError, "Failed to parse archive info: #{e.message}"
+    end
+
+    def get_file_metadata(archive_name, file_path: nil)
+      raise BorgError, "Repository does not exist at #{@path}" unless exists?
+      raise BorgError, "Archive name cannot be empty" if archive_name.nil? || archive_name.strip.empty?
+
+      require "json"
+      require "open3"
+
+      # Get archive info to check if it's a per-file archive
+      archive_info = get_archive_info(archive_name)
+      comment = archive_info.dig("archives", 0, "comment")
+
+      # If it's a per-file archive (has comment with original path), get metadata for that file
+      # Otherwise, require file_path parameter
+      if comment && !comment.empty?
+        # Per-file archive - get metadata for the single file
+        get_file_metadata_from_archive(archive_name, nil)
+      else
+        # Standard archive - require file_path
+        raise BorgError, "file_path parameter required for standard archives" if file_path.nil? || file_path.empty?
+
+        get_file_metadata_from_archive(archive_name, file_path)
+      end
+    end
+
+    private
+
+    def get_file_metadata_from_archive(archive_name, file_path)
+      require "json"
+      require "open3"
+
+      cmd = [@borg_path, "list", "#{@path}::#{archive_name}", "--json-lines"]
+      env = build_borg_env
+
+      stdout, stderr, status = Open3.capture3(env, *cmd)
+      raise BorgError, "Failed to list archive contents: #{stderr}" unless status.success?
+
+      # Parse JSON lines
+      files = stdout.lines.map do |line|
+        JSON.parse(line)
+      end
+
+      # If file_path specified, find that specific file
+      if file_path
+        # Borg stores absolute paths by stripping the leading slash
+        # For example: /var/folders/foo -> var/folders/foo
+        # Try both the original path and the path with leading slash removed
+        normalized_path = file_path.start_with?("/") ? file_path[1..] : file_path
+        file_metadata = files.find { |f| f["path"] == file_path || f["path"] == normalized_path }
+        raise BorgError, "File '#{file_path}' not found in archive" unless file_metadata
+
+        file_metadata
+      else
+        # Per-file archive - return metadata for the single file (first file)
+        raise BorgError, "Archive appears to be empty" if files.empty?
+
+        files.first
+      end
+    rescue JSON::ParserError => e
+      raise BorgError, "Failed to parse file metadata: #{e.message}"
+    end
+
+    public
+
     def prune(retention_policy = {}, retention_mode: "standard")
       raise BorgError, "Repository does not exist at #{@path}" unless exists?
       raise BorgError, "No retention policy specified" if retention_policy.nil? || retention_policy.empty?

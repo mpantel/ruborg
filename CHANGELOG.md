@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2025-10-08
+
+### Added
+- **List Files in Archives**: New `--archive` option for list command to view files within a specific archive
+  - `ruborg list --repository documents --archive archive-name`
+  - Lists all files and directories contained in the specified archive
+  - Useful for finding specific files before restore operations
+- **File Metadata Retrieval**: New `metadata` command to retrieve detailed file information from archives
+  - `ruborg metadata ARCHIVE --repository documents --file /path/to/file`
+  - Auto-detects per-file archives and retrieves metadata without --file option
+  - Displays file size (human-readable), modification time, permissions, owner, group, and type
+  - Supports both standard and per-file archive modes
+- **Version Command**: New `ruborg version` command to display current ruborg version
+- **Enhanced Archive Naming**: Per-file archives now include actual filename in archive name
+  - Changed from `repo-hash-timestamp` to `repo-filename-hash-timestamp`
+  - Makes archive names human-readable and easier to identify
+  - Automatic filename sanitization (alphanumeric, dash, underscore, dot only)
+- **Smart Filename Truncation**: Archive names limited to 255 characters (filesystem limit)
+  - Intelligent truncation preserves file extensions when possible
+  - Handles very long filenames and repository names gracefully
+  - Example: `very-long-name...truncated.sql` becomes `very-lon.sql` with hash and timestamp
+- **File Modification Time in Archives**: Per-file mode uses file mtime instead of backup time
+  - Archive timestamps reflect when files were last modified, not when backup ran
+  - More accurate for tracking file changes over time
+  - Enables better retention based on actual file activity
+
+### Changed
+- **Separated Console Output from Logs**: Console now shows progress, logs show results
+  - Console displays repository headers, progress indicators, and completion messages
+  - Logs contain structured operational data with timestamps
+  - Repository name appears in both console headers and log entries (format: `[repo_name]`)
+  - Cleaner separation between user feedback and audit trails
+- **Enhanced Logging**: More detailed logging for backup operations
+  - Standard mode: Logs archive name with source count
+  - Per-file mode: Logs each file with its archive name
+  - Repository name prefix in all log entries for multi-repo clarity
+
+### Security
+- **Archive Name Validation**: Enhanced sanitization for archive names containing filenames
+  - Whitelist approach allows only safe characters: `[a-zA-Z0-9._-]`
+  - Replaces unsafe characters with underscores
+  - Prevents injection attacks via malicious filenames
+  - Archive names still passed as array elements to prevent shell injection
+- **Path Normalization**: Improved file path handling in metadata retrieval
+  - Correctly handles borg's path format (strips leading slash)
+  - Safe matching within JSON data from borg
+  - No path traversal vulnerabilities introduced
+
 ## [0.6.2] - 2025-10-08
 
 ### Fixed

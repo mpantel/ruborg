@@ -25,7 +25,7 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 📈 **Summary View** - Quick overview of all repositories and their configurations
 - 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
 - 🏠 **Hostname Validation** - NEW! Restrict backups to specific hosts (global or per-repository)
-- ✅ **Well-tested** - Comprehensive test suite with RSpec (220 examples, 0 failures)
+- ✅ **Well-tested** - Comprehensive test suite with RSpec (220+ examples)
 - 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites
@@ -401,8 +401,11 @@ Current value: "true" (String). Set 'allow_remove_source: true' in configuration
 ### List Archives
 
 ```bash
-# List archives for a specific repository
+# List all archives for a specific repository
 ruborg list --repository documents
+
+# List files within a specific archive
+ruborg list --repository documents --archive archive-name
 ```
 
 ### Restore from Archive
@@ -433,6 +436,40 @@ The `info` command without `--repository` displays a summary showing:
 - All configured repositories with their descriptions
 - Retention policies (global and per-repository overrides)
 - Number of sources per repository
+
+### Get File Metadata from Archives
+
+```bash
+# Get metadata from per-file archive (auto-detects single file)
+ruborg metadata archive-name --repository documents
+
+# Get metadata for specific file in standard archive
+ruborg metadata archive-name --repository documents --file /path/to/file.txt
+```
+
+The `metadata` command displays detailed file information:
+- File path
+- Size (human-readable format)
+- Modification time
+- File permissions (mode)
+- Owner and group
+- File type
+
+**Example output:**
+```
+═══════════════════════════════════════════════════════════════
+  FILE METADATA
+═══════════════════════════════════════════════════════════════
+
+Archive: databases-backup.sql-8b4c26d05aae-2025-10-08_19-05-07
+File: var/backups/database.sql
+Size: 45.67 MB
+Modified: 2025-10-08T19:05:07.123456
+Mode: -rw-r--r--
+User: postgres
+Group: postgres
+Type: regular file
+```
 
 ### Check Repository Compatibility
 
@@ -466,6 +503,13 @@ Borg version: 1.2.8
   ✗ INCOMPATIBLE with Borg 1.2.8
     Repository version 2 cannot be read by Borg 1.2.8
     Please upgrade Borg or migrate the repository
+```
+
+### Show Version
+
+```bash
+# Display ruborg version
+ruborg version
 ```
 
 ## Passbolt Integration
@@ -610,10 +654,12 @@ See [SECURITY.md](SECURITY.md) for detailed security information and best practi
 | `init REPOSITORY` | Initialize a new Borg repository | `--passphrase`, `--passbolt-id`, `--log` |
 | `validate` | Validate configuration file for type errors | `--config`, `--log` |
 | `backup` | Create a backup using config file | `--config`, `--repository`, `--all`, `--name`, `--remove-source`, `--log` |
-| `list` | List all archives in repository | `--config`, `--repository`, `--log` |
+| `list` | List archives or files in repository | `--config`, `--repository`, `--archive`, `--log` |
 | `restore ARCHIVE` | Restore files from archive | `--config`, `--repository`, `--destination`, `--path`, `--log` |
+| `metadata ARCHIVE` | Get file metadata from archive | `--config`, `--repository`, `--file`, `--log` |
 | `info` | Show repository information | `--config`, `--repository`, `--log` |
 | `check` | Check repository integrity and compatibility | `--config`, `--repository`, `--all`, `--verify-data`, `--log` |
+| `version` | Show ruborg version | None |
 
 ### Options
 

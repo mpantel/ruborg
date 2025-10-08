@@ -60,9 +60,9 @@ module Ruborg
       raise
     end
 
-    desc "list", "List all archives in the repository"
+    desc "list", "List all archives in the repository or files in a specific archive"
+    option :archive, type: :string, desc: "Archive name to list files from"
     def list
-      @logger.info("Listing archives in repository")
       config = Config.new(options[:config])
 
       raise ConfigError, "Please specify --repository" unless options[:repository]
@@ -77,7 +77,8 @@ module Ruborg
       borg_opts = merged_config["borg_options"] || {}
       borg_path = merged_config["borg_path"]
 
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path, logger: @logger)
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
+                                                 logger: @logger)
 
       # Auto-initialize repository if configured
       # Use strict boolean checking: only true enables, everything else disables
@@ -89,10 +90,17 @@ module Ruborg
         puts "Repository auto-initialized at #{repo_config["path"]}"
       end
 
-      repo.list
-      @logger.info("Successfully listed archives")
+      if options[:archive]
+        @logger.info("Listing files in archive: #{options[:archive]}")
+        repo.list_archive(options[:archive])
+        @logger.info("Successfully listed files in archive")
+      else
+        @logger.info("Listing archives in repository")
+        repo.list
+        @logger.info("Successfully listed archives")
+      end
     rescue Error => e
-      @logger.error("Failed to list archives: #{e.message}")
+      @logger.error("Failed to list: #{e.message}")
       raise
     end
 
@@ -116,7 +124,8 @@ module Ruborg
       borg_opts = merged_config["borg_options"] || {}
       borg_path = merged_config["borg_path"]
 
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path, logger: @logger)
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
+                                                 logger: @logger)
 
       # Create backup config wrapper for compatibility
       backup_config = BackupConfig.new(repo_config, merged_config)
@@ -155,7 +164,8 @@ module Ruborg
       borg_opts = merged_config["borg_options"] || {}
       borg_path = merged_config["borg_path"]
 
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path, logger: @logger)
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
+                                                 logger: @logger)
 
       # Auto-initialize repository if configured
       # Use strict boolean checking: only true enables, everything else disables
@@ -234,7 +244,8 @@ module Ruborg
 
         if errors.any?
           puts "Configuration has errors that must be fixed.\n\n"
-          raise ConfigError, "Configuration validation failed"
+          @logger.error("Configuration validation failed")
+          exit 1
         else
           puts "Configuration is valid but has warnings.\n\n"
         end
@@ -246,76 +257,57 @@ module Ruborg
       raise
     end
 
-    desc "validate", "Validate configuration file for errors and type issues"
-    def validate_config
-      @logger.info("Validating configuration file: #{options[:config]}")
+    desc "version", "Show ruborg version"
+    def version
+      require_relative "version"
+      puts "ruborg #{Ruborg::VERSION}"
+      @logger.info("Version checked: #{Ruborg::VERSION}")
+    end
+
+    desc "metadata ARCHIVE", "Get file metadata from an archive"
+    option :file, type: :string, desc: "Specific file path (required for standard archives, auto for per-file)"
+    def metadata(archive_name)
+      @logger.info("Getting metadata for archive: #{archive_name}")
       config = Config.new(options[:config])
 
-      puts "\n═══════════════════════════════════════════════════════════════"
-      puts "  CONFIGURATION VALIDATION"
-      puts "═══════════════════════════════════════════════════════════════\n\n"
+      raise ConfigError, "Please specify --repository" unless options[:repository]
 
-      errors = []
-      warnings = []
+      repo_config = config.get_repository(options[:repository])
+      raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
 
-      # Validate global boolean settings
       global_settings = config.global_settings
-      errors.concat(validate_boolean_setting(global_settings, "auto_init", "global"))
-      errors.concat(validate_boolean_setting(global_settings, "auto_prune", "global"))
-      errors.concat(validate_boolean_setting(global_settings, "allow_remove_source", "global"))
+      merged_config = global_settings.merge(repo_config)
+      validate_hostname(merged_config)
+      passphrase = fetch_passphrase_for_repo(merged_config)
+      borg_opts = merged_config["borg_options"] || {}
+      borg_path = merged_config["borg_path"]
 
-      # Validate borg_options booleans
-      if global_settings["borg_options"]
-        warnings.concat(validate_borg_option(global_settings["borg_options"], "allow_relocated_repo", "global"))
-        warnings.concat(validate_borg_option(global_settings["borg_options"], "allow_unencrypted_repo", "global"))
-      end
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
+                                                 logger: @logger)
 
-      # Validate per-repository settings
-      config.repositories.each do |repo|
-        repo_name = repo["name"]
-        errors.concat(validate_boolean_setting(repo, "auto_init", repo_name))
-        errors.concat(validate_boolean_setting(repo, "auto_prune", repo_name))
-        errors.concat(validate_boolean_setting(repo, "allow_remove_source", repo_name))
+      raise BorgError, "Repository does not exist at #{repo_config["path"]}" unless repo.exists?
 
-        if repo["borg_options"]
-          warnings.concat(validate_borg_option(repo["borg_options"], "allow_relocated_repo", repo_name))
-          warnings.concat(validate_borg_option(repo["borg_options"], "allow_unencrypted_repo", repo_name))
-        end
-      end
+      # Get file metadata
+      metadata = repo.get_file_metadata(archive_name, file_path: options[:file])
 
-      # Display results
-      if errors.empty? && warnings.empty?
-        puts "✓ Configuration is valid"
-        puts "  No type errors or warnings found\n\n"
-      else
-        unless errors.empty?
-          puts "❌ ERRORS FOUND (#{errors.size}):"
-          errors.each do |error|
-            puts "  - #{error}"
-          end
-          puts ""
-        end
+      # Display metadata
+      puts "\n═══════════════════════════════════════════════════════════════"
+      puts "  FILE METADATA"
+      puts "═══════════════════════════════════════════════════════════════\n\n"
+      puts "Archive: #{archive_name}"
+      puts "File: #{metadata["path"]}"
+      puts "Size: #{format_size(metadata["size"])}"
+      puts "Modified: #{metadata["mtime"]}"
+      puts "Mode: #{metadata["mode"]}"
+      puts "User: #{metadata["user"]}"
+      puts "Group: #{metadata["group"]}"
+      puts "Type: #{metadata["type"]}"
+      puts ""
 
-        unless warnings.empty?
-          puts "⚠️  WARNINGS (#{warnings.size}):"
-          warnings.each do |warning|
-            puts "  - #{warning}"
-          end
-          puts ""
-        end
-
-        if errors.any?
-          puts "Configuration has errors that must be fixed.\n\n"
-          exit 1
-        else
-          puts "Configuration is valid but has warnings.\n\n"
-        end
-      end
-
-      @logger.info("Configuration validation completed")
+      @logger.info("Successfully retrieved metadata for #{metadata["path"]}")
     rescue Error => e
-      @logger.error("Validation failed: #{e.message}")
-      error_exit(e)
+      @logger.error("Failed to get metadata: #{e.message}")
+      raise
     end
 
     desc "check", "Check repository integrity and compatibility"
@@ -363,7 +355,8 @@ module Ruborg
       borg_opts = merged_config["borg_options"] || {}
       borg_path = merged_config["borg_path"]
 
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path, logger: @logger)
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
+                                                 logger: @logger)
 
       unless repo.exists?
         puts "  ✗ Repository does not exist at #{repo_config["path"]}"
@@ -480,6 +473,21 @@ module Ruborg
       parts.empty? ? "none" : parts.join(", ")
     end
 
+    def format_size(bytes)
+      return "0 B" if bytes.nil? || bytes.zero?
+
+      units = %w[B KB MB GB TB]
+      size = bytes.to_f
+      unit_index = 0
+
+      while size >= 1024 && unit_index < units.length - 1
+        size /= 1024.0
+        unit_index += 1
+      end
+
+      format("%.2f %s", size, units[unit_index])
+    end
+
     def get_passphrase(passphrase, passbolt_id)
       return passphrase if passphrase
       return Passbolt.new(resource_id: passbolt_id, logger: @logger).get_password if passbolt_id
@@ -543,7 +551,8 @@ module Ruborg
       passphrase = fetch_passphrase_for_repo(merged_config)
       borg_opts = merged_config["borg_options"] || {}
       borg_path = merged_config["borg_path"]
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path, logger: @logger)
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
+                                                 logger: @logger)
 
       # Auto-initialize if configured
       # Use strict boolean checking: only true enables, everything else disables
@@ -571,7 +580,8 @@ module Ruborg
 
       # Create backup config wrapper
       backup_config = BackupConfig.new(repo_config, merged_config)
-      backup = Backup.new(repo, config: backup_config, retention_mode: retention_mode, repo_name: repo_name, logger: @logger)
+      backup = Backup.new(repo, config: backup_config, retention_mode: retention_mode, repo_name: repo_name,
+                                logger: @logger)
 
       archive_name = options[:name] ? sanitize_archive_name(options[:name]) : nil
       @logger.info("Creating archive#{"s" if retention_mode == "per_file"}: #{archive_name || "auto-generated"}")

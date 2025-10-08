@@ -812,7 +812,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_without_allow, "--repository", "test-repo", "--remove-source"])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
 
       it "does not prevent backup without --remove-source" do
@@ -877,7 +877,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_with_string, "--repository", "test-repo", "--remove-source"])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
 
       it "blocks string 'true'" do
@@ -893,7 +893,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_with_string, "--repository", "test-repo", "--remove-source"])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
 
       it "blocks integer 1" do
@@ -909,7 +909,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_with_int, "--repository", "test-repo", "--remove-source"])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
 
       it "blocks empty string" do
@@ -925,7 +925,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_with_empty, "--repository", "test-repo", "--remove-source"])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
 
       it "blocks nil value" do
@@ -941,7 +941,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_with_nil, "--repository", "test-repo", "--remove-source"])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
 
       it "blocks boolean false" do
@@ -957,7 +957,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_with_false, "--repository", "test-repo", "--remove-source"])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
     end
   end
@@ -1003,9 +1003,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["validate", "--config", config_file])
-        end.to raise_error(SystemExit) do |error|
-          expect(error.status).to eq(1)
-        end
+        end.to raise_error(Ruborg::ConfigError)
       end
 
       it "detects string 'false' instead of boolean" do
@@ -1023,9 +1021,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["validate", "--config", config_file])
-        end.to raise_error(SystemExit) do |error|
-          expect(error.status).to eq(1)
-        end
+        end.to raise_error(Ruborg::ConfigError)
       end
 
       it "detects integer 1 instead of boolean" do
@@ -1043,9 +1039,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["validate", "--config", config_file])
-        end.to raise_error(SystemExit) do |error|
-          expect(error.status).to eq(1)
-        end
+        end.to raise_error(Ruborg::ConfigError)
       end
     end
 
@@ -1065,9 +1059,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["validate", "--config", config_file])
-        end.to raise_error(SystemExit) do |error|
-          expect(error.status).to eq(1)
-        end
+        end.to raise_error(Ruborg::ConfigError)
       end
     end
 
@@ -1087,9 +1079,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["validate", "--config", config_file])
-        end.to raise_error(SystemExit) do |error|
-          expect(error.status).to eq(1)
-        end
+        end.to raise_error(Ruborg::ConfigError)
       end
     end
 
@@ -1133,10 +1123,10 @@ RSpec.describe Ruborg::CLI do
         }
         config_file = create_test_config(multi_error_config)
 
-        # Schema validation happens on config load, so it exits before validate command runs
+        # Schema validation happens on config load, so ConfigError is raised before validate command runs
         expect do
           described_class.start(["validate", "--config", config_file])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
     end
   end
@@ -1158,7 +1148,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["info", "--config", config_file])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
 
       it "fails on config load when auto_init has wrong type" do
@@ -1176,7 +1166,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["info", "--config", config_file])
-        end.to raise_error(SystemExit)
+        end.to raise_error(Ruborg::ConfigError)
       end
     end
 
@@ -1199,6 +1189,121 @@ RSpec.describe Ruborg::CLI do
           described_class.start(["info", "--config", config_file])
         end.to output(/RUBORG REPOSITORIES SUMMARY/).to_stdout
       end
+    end
+  end
+
+  describe "version command" do
+    it "shows ruborg version" do
+      expect do
+        described_class.start(["version"])
+      end.to output(/ruborg \d+\.\d+\.\d+/).to_stdout
+    end
+
+    it "includes version number from VERSION constant" do
+      expect do
+        described_class.start(["version"])
+      end.to output(/#{Ruborg::VERSION}/).to_stdout
+    end
+  end
+
+  describe "list --archive command", :borg do
+    let(:archive_name) { "test-archive" }
+
+    before do
+      # Create repository and backup
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      FileUtils.mkdir_p(File.join(tmpdir, "backup_source"))
+      File.write(File.join(tmpdir, "backup_source", "test.txt"), "test content")
+
+      # Create backup
+      backup_config = double("BackupConfig")
+      allow(backup_config).to receive_messages(
+        backup_paths: [File.join(tmpdir, "backup_source")],
+        exclude_patterns: [],
+        compression: "lz4",
+        encryption_mode: "repokey"
+      )
+
+      backup = Ruborg::Backup.new(repo, config: backup_config)
+      backup.create(name: archive_name)
+
+      # Update config
+      updated_config = config_data.merge("passbolt" => { "resource_id" => "test-id" })
+      File.write(config_file, updated_config.to_yaml)
+
+      # Mock passbolt
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+    end
+
+    it "lists files in specific archive" do
+      expect do
+        described_class.start(["list", "--config", config_file, "--repository", "test-repo", "--archive", archive_name])
+      end.not_to raise_error
+    end
+
+    it "raises error for non-existent archive" do
+      expect do
+        described_class.start(["list", "--config", config_file, "--repository", "test-repo", "--archive", "non-existent"])
+      end.to raise_error(Ruborg::BorgError)
+    end
+  end
+
+  describe "metadata command", :borg do
+    let(:archive_name) { "test-archive" }
+
+    before do
+      # Create repository and backup
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      FileUtils.mkdir_p(File.join(tmpdir, "backup_source"))
+      test_file = File.join(tmpdir, "backup_source", "test.txt")
+      File.write(test_file, "test content")
+
+      # Create backup
+      backup_config = double("BackupConfig")
+      allow(backup_config).to receive_messages(
+        backup_paths: [test_file],
+        exclude_patterns: [],
+        compression: "lz4",
+        encryption_mode: "repokey"
+      )
+
+      backup = Ruborg::Backup.new(repo, config: backup_config)
+      backup.create(name: archive_name)
+
+      # Update config
+      updated_config = config_data.merge("passbolt" => { "resource_id" => "test-id" })
+      File.write(config_file, updated_config.to_yaml)
+
+      # Mock passbolt
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+    end
+
+    it "shows file metadata from archive" do
+      file_path = File.join(tmpdir, "backup_source", "test.txt")
+
+      expect do
+        described_class.start(["metadata", archive_name, "--config", config_file, "--repository", "test-repo", "--file", file_path])
+      end.to output(/FILE METADATA/).to_stdout
+    end
+
+    it "shows size in human-readable format" do
+      file_path = File.join(tmpdir, "backup_source", "test.txt")
+
+      expect do
+        described_class.start(["metadata", archive_name, "--config", config_file, "--repository", "test-repo", "--file", file_path])
+      end.to output(/Size:/).to_stdout
+    end
+
+    it "raises error for non-existent archive" do
+      expect do
+        described_class.start(["metadata", "non-existent", "--config", config_file, "--repository", "test-repo"])
+      end.to raise_error
     end
   end
 end

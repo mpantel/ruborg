@@ -449,4 +449,146 @@ RSpec.describe Ruborg::Repository do
       end
     end
   end
+
+  describe "#list_archive", :borg do
+    let(:archive_name) { "test-archive" }
+
+    before do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      # Create a simple backup
+      source_dir = File.join(tmpdir, "source")
+      FileUtils.mkdir_p(source_dir)
+      File.write(File.join(source_dir, "file1.txt"), "content1")
+
+      system(
+        { "BORG_PASSPHRASE" => passphrase },
+        "borg", "create", "#{repo_path}::#{archive_name}", source_dir,
+        in: "/dev/null",
+        out: "/dev/null",
+        err: "/dev/null"
+      )
+    end
+
+    it "lists files in a specific archive" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+
+      expect do
+        repo.list_archive(archive_name)
+      end.not_to raise_error
+    end
+
+    it "raises error for empty archive name" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+
+      expect do
+        repo.list_archive("")
+      end.to raise_error(Ruborg::BorgError, /Archive name cannot be empty/)
+    end
+
+    it "raises error for non-existent archive" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+
+      expect do
+        repo.list_archive("non-existent")
+      end.to raise_error(Ruborg::BorgError)
+    end
+  end
+
+  describe "#get_archive_info", :borg do
+    let(:archive_name) { "test-archive" }
+
+    before do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      # Create a simple backup
+      source_dir = File.join(tmpdir, "source")
+      FileUtils.mkdir_p(source_dir)
+      File.write(File.join(source_dir, "file1.txt"), "content1")
+
+      system(
+        { "BORG_PASSPHRASE" => passphrase },
+        "borg", "create", "#{repo_path}::#{archive_name}", source_dir,
+        in: "/dev/null",
+        out: "/dev/null",
+        err: "/dev/null"
+      )
+    end
+
+    it "returns JSON metadata for archive" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+
+      result = repo.get_archive_info(archive_name)
+
+      expect(result).to be_a(Hash)
+      expect(result).to have_key("archives")
+    end
+
+    it "raises error for empty archive name" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+
+      expect do
+        repo.get_archive_info("")
+      end.to raise_error(Ruborg::BorgError, /Archive name cannot be empty/)
+    end
+
+    it "raises error for non-existent archive" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+
+      expect do
+        repo.get_archive_info("non-existent")
+      end.to raise_error(Ruborg::BorgError)
+    end
+  end
+
+  describe "#get_file_metadata", :borg do
+    let(:archive_name) { "test-archive" }
+    let(:test_file) { File.join(tmpdir, "source", "file1.txt") }
+
+    before do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      # Create a simple backup
+      source_dir = File.join(tmpdir, "source")
+      FileUtils.mkdir_p(source_dir)
+      File.write(test_file, "test content")
+
+      system(
+        { "BORG_PASSPHRASE" => passphrase },
+        "borg", "create", "#{repo_path}::#{archive_name}", test_file,
+        in: "/dev/null",
+        out: "/dev/null",
+        err: "/dev/null"
+      )
+    end
+
+    it "returns metadata for specific file" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+
+      metadata = repo.get_file_metadata(archive_name, file_path: test_file)
+
+      expect(metadata).to be_a(Hash)
+      expect(metadata).to have_key("path")
+      expect(metadata).to have_key("size")
+    end
+
+    it "raises error for empty archive name" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+
+      expect do
+        repo.get_file_metadata("", file_path: test_file)
+      end.to raise_error(Ruborg::BorgError, /Archive name cannot be empty/)
+    end
+
+    it "raises error when file not found in archive" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+
+      expect do
+        repo.get_file_metadata(archive_name, file_path: "/non/existent/file.txt")
+      end.to raise_error(Ruborg::BorgError, /not found in archive/)
+    end
+  end
 end

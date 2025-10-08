@@ -87,8 +87,8 @@ RSpec.describe "Per-file backup mode", :borg do
       # List archives
       output = `BORG_PASSPHRASE=#{passphrase} borg list #{repo_path} 2>&1`
 
-      # Archive names should contain hash
-      expect(output).to match(/test-[a-f0-9]{12}-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/)
+      # Archive names should contain filename, hash, and timestamp in format: repo-filename-hash-timestamp
+      expect(output).to match(/test-.*-[a-f0-9]{12}-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/)
     end
 
     it "respects exclude patterns in per-file mode" do

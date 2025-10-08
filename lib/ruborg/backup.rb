@@ -25,9 +25,20 @@ module Ruborg
 
     def create_standard_archive(name, remove_source)
       archive_name = name || Time.now.strftime("%Y-%m-%d_%H-%M-%S")
+
+      # Show repository header in console only
+      print_repository_header
+
+      # Show progress in console
+      puts "Creating archive: #{archive_name}"
+
       cmd = build_create_command(archive_name)
 
       execute_borg_command(cmd)
+
+      # Log successful action
+      @logger&.info("[#{@repo_name}] Created archive #{archive_name} with #{@config.backup_paths.size} source(s)")
+      puts "✓ Archive created successfully"
 
       remove_source_files if remove_source
     end
@@ -38,24 +49,36 @@ module Ruborg
 
       raise BorgError, "No files found to backup" if files_to_backup.empty?
 
-      @logger&.info("Per-file mode: Found #{files_to_backup.size} file(s) to backup")
+      # Show repository header in console only
+      print_repository_header
 
-      timestamp = Time.now.strftime("%Y-%m-%d_%H-%M-%S")
+      puts "Found #{files_to_backup.size} file(s) to backup"
 
       files_to_backup.each_with_index do |file_path, index|
-        # Generate hash-based archive name
+        # Generate hash-based archive name with filename
         path_hash = generate_path_hash(file_path)
-        archive_name = name_prefix || "#{@repo_name}-#{path_hash}-#{timestamp}"
+        filename = File.basename(file_path)
+        sanitized_filename = sanitize_filename(filename)
 
-        @logger&.info("Backing up file #{index + 1}/#{files_to_backup.size}: #{file_path}")
+        # Use file modification time for timestamp (not backup creation time)
+        file_mtime = File.mtime(file_path).strftime("%Y-%m-%d_%H-%M-%S")
+
+        # Ensure archive name doesn't exceed 255 characters (filesystem limit)
+        archive_name = name_prefix || build_archive_name(@repo_name, sanitized_filename, path_hash, file_mtime)
+
+        # Show progress in console
+        puts "  [#{index + 1}/#{files_to_backup.size}] Backing up: #{file_path}"
 
         # Create archive for single file with original path as comment
         cmd = build_per_file_create_command(archive_name, file_path)
 
         execute_borg_command(cmd)
+
+        # Log successful action with details
+        @logger&.info("[#{@repo_name}] Archived #{file_path} in archive #{archive_name}")
       end
 
-      @logger&.info("Per-file backup completed: #{files_to_backup.size} file(s) backed up")
+      puts "✓ Per-file backup completed: #{files_to_backup.size} file(s) backed up"
 
       # NOTE: remove_source handled per file after successful backup
       remove_source_files if remove_source
@@ -95,6 +118,64 @@ module Ruborg
       require "digest"
       # Use SHA256 and take first 12 characters for uniqueness
       Digest::SHA256.hexdigest(file_path)[0...12]
+    end
+
+    def sanitize_filename(filename)
+      # Remove or replace characters that are not safe for archive names
+      # Allow alphanumeric, dash, underscore, and dot
+      sanitized = filename.gsub(/[^a-zA-Z0-9._-]/, "_")
+
+      # Ensure the sanitized name is not empty
+      sanitized = "file" if sanitized.empty? || sanitized.strip.empty?
+
+      sanitized
+    end
+
+    def build_archive_name(repo_name, sanitized_filename, path_hash, timestamp)
+      # Maximum filename length for most filesystems (ext4, NTFS, APFS)
+      max_length = 255
+
+      # Calculate fixed portions: separators (3) + hash (12) + timestamp (19)
+      fixed_length = 3 + path_hash.length + timestamp.length
+      repo_name_length = repo_name ? repo_name.length : 0
+
+      # Calculate available space for filename
+      available_for_filename = max_length - fixed_length - repo_name_length
+
+      # Truncate filename if necessary, preserving file extension if possible
+      truncated_filename = if sanitized_filename.length > available_for_filename
+                             truncate_with_extension(sanitized_filename, available_for_filename)
+                           else
+                             sanitized_filename
+                           end
+
+      "#{repo_name}-#{truncated_filename}-#{path_hash}-#{timestamp}"
+    end
+
+    def truncate_with_extension(filename, max_length)
+      return "" if max_length <= 0
+      return filename if filename.length <= max_length
+
+      # Try to preserve extension (last .xxx)
+      if filename.include?(".") && filename !~ /^\./
+        parts = filename.rpartition(".")
+        basename = parts[0]
+        extension = parts[2]
+
+        # Reserve space for extension plus dot
+        extension_length = extension.length + 1
+
+        if extension_length < max_length
+          basename_max = max_length - extension_length
+          "#{basename[0...basename_max]}.#{extension}"
+        else
+          # Extension too long, just truncate entire filename
+          filename[0...max_length]
+        end
+      else
+        # No extension, just truncate
+        filename[0...max_length]
+      end
     end
 
     def build_per_file_create_command(archive_name, file_path)
@@ -249,6 +330,12 @@ module Ruborg
 
         File.expand_path(path)
       end
+    end
+
+    def print_repository_header
+      puts "\n" + ("=" * 60)
+      puts "  Repository: #{@repo_name}"
+      puts "=" * 60
     end
   end
 end
