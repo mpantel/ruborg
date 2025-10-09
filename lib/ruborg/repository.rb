@@ -114,7 +114,7 @@ module Ruborg
         # For example: /var/folders/foo -> var/folders/foo
         # Try both the original path and the path with leading slash removed
         normalized_path = file_path.start_with?("/") ? file_path[1..] : file_path
-        file_metadata = files.find { |f| f["path"] == file_path || f["path"] == normalized_path }
+        file_metadata = files.find { |f| [file_path, normalized_path].include?(f["path"]) }
         raise BorgError, "File '#{file_path}' not found in archive" unless file_metadata
 
         file_metadata
@@ -166,8 +166,8 @@ module Ruborg
 
       unless keep_files_modified_within
         # Fall back to standard pruning if no file metadata retention specified
-        @logger&.info("No file metadata retention specified, using standard pruning")
-        prune_standard_archives(retention_policy)
+        @logger&.info("No file metadata retention specified, using standard pruning per directory")
+        prune_per_directory_standard(retention_policy)
         return
       end
 
@@ -176,35 +176,50 @@ module Ruborg
       # Parse time duration (e.g., "30d" -> 30 days)
       cutoff_time = Time.now - parse_time_duration(keep_files_modified_within)
 
-      # Get all archives with metadata
-      archives = list_archives_with_metadata
-      @logger&.info("Found #{archives.size} archive(s) to evaluate for pruning")
+      # Get all archives with metadata including source directory
+      archives_by_source = get_archives_grouped_by_source_dir
+      @logger&.info("Found #{archives_by_source.values.sum(&:size)} archive(s) in #{archives_by_source.size} source director(ies)")
 
-      archives_to_delete = []
+      total_deleted = 0
 
-      archives.each do |archive|
-        # Get file metadata from archive
-        file_mtime = get_file_mtime_from_archive(archive[:name])
+      # Process each source directory separately
+      archives_by_source.each do |source_dir, archives|
+        source_desc = source_dir.empty? ? "legacy archives (no source dir)" : source_dir
+        @logger&.info("Processing source directory: #{source_desc} (#{archives.size} archives)")
 
-        # Delete archive if file was modified before cutoff
-        if file_mtime && file_mtime < cutoff_time
-          archives_to_delete << archive[:name]
-          @logger&.debug("Archive #{archive[:name]} marked for deletion (file mtime: #{file_mtime})")
+        archives_to_delete = []
+
+        archives.each do |archive|
+          # Get file metadata from archive
+          file_mtime = get_file_mtime_from_archive(archive[:name])
+
+          # Delete archive if file was modified before cutoff
+          if file_mtime && file_mtime < cutoff_time
+            archives_to_delete << archive[:name]
+            @logger&.debug("Archive #{archive[:name]} marked for deletion (file mtime: #{file_mtime})")
+          end
         end
+
+        next if archives_to_delete.empty?
+
+        @logger&.info("Deleting #{archives_to_delete.size} archive(s) from #{source_desc}")
+
+        # Delete archives
+        archives_to_delete.each do |archive_name|
+          @logger&.debug("Deleting archive: #{archive_name}")
+          delete_archive(archive_name)
+        end
+
+        total_deleted += archives_to_delete.size
       end
 
-      return if archives_to_delete.empty?
-
-      @logger&.info("Deleting #{archives_to_delete.size} archive(s)")
-
-      # Delete archives
-      archives_to_delete.each do |archive_name|
-        @logger&.debug("Deleting archive: #{archive_name}")
-        delete_archive(archive_name)
+      if total_deleted.zero?
+        @logger&.info("No archives to prune")
+        puts "No archives to prune"
+      else
+        @logger&.info("Pruned #{total_deleted} archive(s) total across all source directories")
+        puts "Pruned #{total_deleted} archive(s) based on file modification time"
       end
-
-      @logger&.info("Pruned #{archives_to_delete.size} archive(s) based on file modification time")
-      puts "Pruned #{archives_to_delete.size} archive(s) based on file modification time"
     end
 
     def list_archives_with_metadata
@@ -261,6 +276,142 @@ module Ruborg
       Time.parse(mtime_str)
     rescue JSON::ParserError, ArgumentError
       nil # Failed to parse, skip this archive
+    end
+
+    def get_archives_grouped_by_source_dir
+      require "json"
+      require "time"
+      require "open3"
+
+      # Get list of all archives
+      cmd = [@borg_path, "list", @path, "--json"]
+      env = build_borg_env
+
+      stdout, stderr, status = Open3.capture3(env, *cmd)
+      raise BorgError, "Failed to list archives: #{stderr}" unless status.success?
+
+      json_data = JSON.parse(stdout)
+      archives = json_data["archives"] || []
+
+      # Group archives by source directory from metadata
+      archives_by_source = Hash.new { |h, k| h[k] = [] }
+
+      archives.each do |archive|
+        archive_name = archive["name"]
+
+        # Get archive info to read comment (metadata)
+        info_cmd = [@borg_path, "info", "#{@path}::#{archive_name}", "--json"]
+        info_stdout, _, info_status = Open3.capture3(env, *info_cmd)
+
+        unless info_status.success?
+          # If we can't get info, put in legacy group
+          archives_by_source[""] << {
+            name: archive_name,
+            time: Time.parse(archive["time"])
+          }
+          next
+        end
+
+        info_data = JSON.parse(info_stdout)
+        comment = info_data.dig("archives", 0, "comment") || ""
+
+        # Parse source_dir from comment
+        # Format: path|||size|||hash|||source_dir
+        source_dir = if comment.include?("|||")
+                       parts = comment.split("|||")
+                       parts.length >= 4 ? (parts[3] || "") : ""
+                     else
+                       ""
+                     end
+
+        archives_by_source[source_dir] << {
+          name: archive_name,
+          time: Time.parse(archive["time"])
+        }
+      end
+
+      archives_by_source
+    rescue JSON::ParserError => e
+      raise BorgError, "Failed to parse archive metadata: #{e.message}"
+    end
+
+    def prune_per_directory_standard(retention_policy)
+      # Apply standard retention policies (keep_daily, etc.) per source directory
+      archives_by_source = get_archives_grouped_by_source_dir
+      @logger&.info("Applying standard retention per directory: #{archives_by_source.size} director(ies)")
+
+      total_pruned = 0
+
+      archives_by_source.each do |source_dir, archives|
+        source_desc = source_dir.empty? ? "legacy archives (no source dir)" : source_dir
+        @logger&.info("Processing source directory: #{source_desc} (#{archives.size} archives)")
+
+        # Create a temporary prefix to filter this directory's archives
+        # Since we can't directly use borg prune with filtering, we need to delete individually
+        archives_to_keep = apply_retention_policy(archives, retention_policy)
+        archives_to_delete = archives.map { |a| a[:name] } - archives_to_keep.map { |a| a[:name] }
+
+        next if archives_to_delete.empty?
+
+        @logger&.info("Pruning #{archives_to_delete.size} archive(s) from #{source_desc}")
+
+        archives_to_delete.each do |archive_name|
+          @logger&.debug("Deleting archive: #{archive_name}")
+          delete_archive(archive_name)
+        end
+
+        total_pruned += archives_to_delete.size
+      end
+
+      if total_pruned.zero?
+        @logger&.info("No archives to prune")
+        puts "No archives to prune"
+      else
+        @logger&.info("Pruned #{total_pruned} archive(s) total across all source directories")
+        puts "Pruned #{total_pruned} archive(s) across all source directories"
+      end
+    end
+
+    def apply_retention_policy(archives, policy)
+      # Sort archives by time (newest first)
+      sorted = archives.sort_by { |a| a[:time] }.reverse
+      to_keep = []
+
+      # Apply keep_last first (if specified)
+      to_keep += sorted.take(policy["keep_last"]) if policy["keep_last"]
+
+      # Apply time-based retention (keep_within)
+      if policy["keep_within"]
+        cutoff = Time.now - parse_time_duration(policy["keep_within"])
+        to_keep += sorted.select { |a| a[:time] >= cutoff }
+      end
+
+      # Apply count-based retention (keep_daily, keep_weekly, etc.)
+      # Group archives by time period and keep the newest from each period
+      %w[hourly daily weekly monthly yearly].each do |period|
+        keep_count = policy["keep_#{period}"]
+        next unless keep_count
+
+        case period
+        when "hourly"
+          grouped = sorted.group_by { |a| a[:time].strftime("%Y-%m-%d-%H") }
+        when "daily"
+          grouped = sorted.group_by { |a| a[:time].strftime("%Y-%m-%d") }
+        when "weekly"
+          grouped = sorted.group_by { |a| a[:time].strftime("%Y-W%W") }
+        when "monthly"
+          grouped = sorted.group_by { |a| a[:time].strftime("%Y-%m") }
+        when "yearly"
+          grouped = sorted.group_by { |a| a[:time].strftime("%Y") }
+        end
+
+        # Keep the newest archive from each of the most recent N periods
+        grouped.keys.sort.reverse.take(keep_count.to_i).each do |key|
+          to_keep << grouped[key].first
+        end
+      end
+
+      to_keep.uniq { |a| a[:name] }
     end
 
     def delete_archive(archive_name)
