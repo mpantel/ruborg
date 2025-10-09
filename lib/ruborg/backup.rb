@@ -62,7 +62,10 @@ module Ruborg
       skipped_count = 0
 
       # rubocop:disable Metrics/BlockLength
-      files_to_backup.each_with_index do |file_path, index|
+      files_to_backup.each_with_index do |file_info, index|
+        file_path = file_info[:path]
+        source_dir = file_info[:source_dir]
+
         # Generate hash-based archive name with filename
         path_hash = generate_path_hash(file_path)
         filename = File.basename(file_path)
@@ -126,8 +129,8 @@ module Ruborg
           end
         end
 
-        # Create archive for single file with original path as comment
-        cmd = build_per_file_create_command(archive_name, file_path)
+        # Create archive for single file with source directory in metadata
+        cmd = build_per_file_create_command(archive_name, file_path, source_dir)
 
         execute_borg_command(cmd)
         puts ""
@@ -157,13 +160,13 @@ module Ruborg
         base_path = File.expand_path(base_path)
 
         if File.file?(base_path)
-          files << base_path unless excluded?(base_path, exclude_patterns)
+          files << { path: base_path, source_dir: base_path } unless excluded?(base_path, exclude_patterns)
         elsif File.directory?(base_path)
           Find.find(base_path) do |path|
             next unless File.file?(path)
             next if excluded?(path, exclude_patterns)
 
-            files << path
+            files << { path: path, source_dir: base_path }
           end
         end
       end
@@ -248,15 +251,15 @@ module Ruborg
       Digest::SHA256.file(file_path).hexdigest
     end
 
-    def build_per_file_create_command(archive_name, file_path)
+    def build_per_file_create_command(archive_name, file_path, source_dir)
       cmd = [@repository.borg_path, "create"]
       cmd += ["--compression", @config.compression]
 
-      # Store file metadata (path + size + hash) in archive comment for duplicate detection
-      # Format: path|||size|||hash (using ||| as delimiter to avoid conflicts with paths)
+      # Store file metadata (path + size + hash + source_dir) in archive comment
+      # Format: path|||size|||hash|||source_dir (using ||| as delimiter to avoid conflicts with paths)
       file_size = File.size(file_path)
       file_hash = calculate_file_hash(file_path)
-      metadata = "#{file_path}|||#{file_size}|||#{file_hash}"
+      metadata = "#{file_path}|||#{file_size}|||#{file_hash}|||#{source_dir}"
       cmd += ["--comment", metadata]
 
       cmd << "#{@repository.path}::#{archive_name}"
@@ -470,7 +473,7 @@ module Ruborg
 
         unless info_status.success?
           # If we can't get info for this archive, skip it with defaults
-          hash[archive_name] = { path: "", size: 0, hash: "" }
+          hash[archive_name] = { path: "", size: 0, hash: "", source_dir: "" }
           next
         end
 
@@ -479,34 +482,44 @@ module Ruborg
         comment = archive_info["comment"] || ""
 
         # Parse comment based on format
-        # The comment field stores metadata as: path|||size|||hash (using ||| as delimiter)
+        # The comment field stores metadata as: path|||size|||hash|||source_dir (using ||| as delimiter)
         # For backward compatibility, handle old formats:
         #   - Old format 1: plain path (no |||)
         #   - Old format 2: path|||hash (2 parts)
-        #   - New format: path|||size|||hash (3 parts)
+        #   - Old format 3: path|||size|||hash (3 parts)
+        #   - New format: path|||size|||hash|||source_dir (4 parts)
         if comment.include?("|||")
           parts = comment.split("|||")
           file_path = parts[0]
-          if parts.length >= 3
-            # New format: path|||size|||hash
+          if parts.length >= 4
+            # New format: path|||size|||hash|||source_dir
             file_size = parts[1].to_i
             file_hash = parts[2] || ""
+            source_dir = parts[3] || ""
+          elsif parts.length >= 3
+            # Format 3: path|||size|||hash (no source_dir)
+            file_size = parts[1].to_i
+            file_hash = parts[2] || ""
+            source_dir = ""
           else
-            # Old format: path|||hash (size not available)
+            # Old format: path|||hash (size and source_dir not available)
             file_size = 0
             file_hash = parts[1] || ""
+            source_dir = ""
           end
         else
           # Oldest format: comment is just the path string
           file_path = comment
           file_size = 0
           file_hash = ""
+          source_dir = ""
         end
 
         hash[archive_name] = {
           path: file_path,
           size: file_size,
-          hash: file_hash
+          hash: file_hash,
+          source_dir: source_dir
         }
       end
     rescue JSON::ParserError => e
