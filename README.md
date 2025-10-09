@@ -25,7 +25,7 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 📈 **Summary View** - Quick overview of all repositories and their configurations
 - 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
 - 🏠 **Hostname Validation** - NEW! Restrict backups to specific hosts (global or per-repository)
-- ✅ **Well-tested** - Comprehensive test suite with RSpec (288+ examples)
+- ✅ **Well-tested** - Comprehensive test suite with RSpec (294 examples, 0 failures)
 - 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites
@@ -750,6 +750,8 @@ This configuration provides:
 ### Per-File Backup Mode with File Metadata Retention
 
 **NEW:** Ruborg supports a per-file backup mode where each file is backed up as a separate archive. This enables intelligent retention based on **file modification time** rather than backup creation time.
+
+**Per-Directory Retention (v0.8+):** Retention policies are now applied **independently per source directory**. Each `paths` entry gets its own retention quota, preventing one active directory from dominating retention across all sources.
 
 **Use Case:** Keep backups of actively modified files while automatically pruning backups of files that haven't been modified recently - even after the source files are deleted.
 

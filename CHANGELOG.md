@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2025-10-09
+
+### Added
+- **Per-Directory Retention**: Retention policies now apply independently to each source directory in per-file backup mode
+  - Each `paths` entry in repository sources gets its own retention quota
+  - Prevents one active directory from dominating retention across all sources
+  - Example: `keep_daily: 14` keeps 14 archives per source directory, not 14 total
+  - Works with both `keep_files_modified_within` and standard retention policies (`keep_daily`, `keep_weekly`, etc.)
+  - Legacy archives (without source_dir metadata) grouped separately for backward compatibility
+- **Enhanced Archive Metadata**: Archive comments now include source directory
+  - New format: `path|||size|||hash|||source_dir` (4-field format)
+  - Backward compatible with all previous formats (3-field, 2-field, plain path)
+  - Enables accurate per-directory grouping and retention
+- **Comprehensive Test Suite**: Added 6 new per-directory retention tests (27 total examples, 0 failures)
+  - Independent retention per source directory
+  - Separate retention quotas with `keep_daily`
+  - Archive metadata validation
+  - Legacy archive grouping
+  - Mixed format pruning
+  - Per-directory `keep_files_modified_within`
+
+### Changed
+- **File Collection Tracking**: Files now tracked with both path and originating source directory
+  - Modified `collect_files_from_paths` to return `{path:, source_dir:}` hash format
+  - Source directory captured from expanded backup paths
+  - Used for per-directory retention grouping during pruning
+- **Archive Grouping**: Per-file archives grouped by source directory during pruning
+  - New method: `get_archives_grouped_by_source_dir` (lib/ruborg/repository.rb:281-336)
+  - Queries archive metadata to extract source directory
+  - Returns hash: `{"/path/to/source" => [archives]}`
+  - Handles legacy archives gracefully (empty source_dir)
+- **Pruning Logic**: Per-file pruning now processes each directory independently
+  - Method: `prune_per_file_archives` (lib/ruborg/repository.rb:163-223)
+  - Applies retention policy separately to each source directory group
+  - Logs per-directory pruning statistics
+  - Falls back to standard pruning when `keep_files_modified_within` not specified
+
+### Technical Details
+- Per-directory retention queries archive metadata once per pruning operation
+- One `borg info` call per archive to read metadata (noted in documentation as potential optimization)
+- Backward compatibility: Archives without `source_dir` default to empty string and group as "legacy"
+- No migration required: Old archives naturally age out, new archives have proper metadata
+- Implementation documented in `PER_DIRECTORY_RETENTION.md`
+
+### Security
+- **Security Audit: PASS** ✓
+  - No HIGH or MEDIUM severity issues identified
+  - 1 LOW severity information disclosure (minor log message, acceptable)
+  - All command execution uses safe array syntax (`Open3.capture3`)
+  - Path validation maintained for all operations
+  - Safe JSON parsing with error handling
+  - No code evaluation or unsafe deserialization
+  - Backward-compatible metadata parsing with safe defaults
+  - Sensitive data (passphrases) kept in environment variables only
+
 ## [0.8.0] - 2025-10-09
 
 ### Removed

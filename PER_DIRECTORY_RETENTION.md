@@ -213,15 +213,64 @@ As noted above, per-directory grouping requires individual API calls per archive
 ## Testing
 
 The changes have been tested with:
-- Existing RSpec test suite (124 examples, 0 failures)
+- Comprehensive RSpec test suite (**27 examples, 0 failures**)
 - Manual testing with mixed old/new archives
 - Backward compatibility verified
+- All RuboCop checks passing (0 offenses)
 
 **Test coverage includes:**
-- Per-file backup creation
-- Standard archive operations
-- Security features
-- Configuration validation
+
+### Core Per-File Functionality (Existing)
+- Per-file archive creation (separate archives per file)
+- Archive naming with hash-based uniqueness
+- File path storage in archive comments
+- Exclude pattern support
+- Duplicate detection and hash verification
+- Versioned archives when content changes
+- Backward compatibility with legacy archive formats
+- File metadata-based retention (`keep_files_modified_within`)
+- Time duration parsing (days, weeks, months, years)
+- Standard backup mode compatibility
+- Mixed retention policies
+- `--remove-source` behavior
+
+### Per-Directory Retention (New Tests)
+1. **Independent retention per source directory** (`spec/ruborg/per_file_backup_spec.rb:569`)
+   - Tests that files from different source paths are pruned independently
+   - Verifies `keep_files_modified_within` respects directory boundaries
+   - Validates that old files in one directory don't affect retention in another
+
+2. **Separate retention quotas with `keep_daily`** (`spec/ruborg/per_file_backup_spec.rb:629`)
+   - Tests standard retention policies applied per directory
+   - Verifies each source path gets its full retention quota
+   - Ensures directories don't compete for retention slots
+
+3. **Archive metadata includes `source_dir`** (`spec/ruborg/per_file_backup_spec.rb:673`)
+   - Validates new metadata format: `path|||size|||hash|||source_dir`
+   - Confirms source directory is correctly stored and retrievable
+   - Tests metadata integrity across multiple source paths
+
+4. **Legacy archive grouping** (`spec/ruborg/per_file_backup_spec.rb:704`)
+   - Tests backward compatibility with archives lacking `source_dir`
+   - Verifies legacy archives form separate retention group
+   - Ensures mixed old/new formats don't cause errors
+
+5. **Mixed format pruning** (`spec/ruborg/per_file_backup_spec.rb:745`)
+   - Tests pruning with both legacy and new format archives
+   - Validates correct grouping and retention application
+   - Ensures legacy archives are handled gracefully
+
+6. **`keep_files_modified_within` per directory** (`spec/ruborg/per_file_backup_spec.rb:804`)
+   - Tests file-age-based retention respects directory boundaries
+   - Verifies independent evaluation across source paths
+   - Confirms consistent behavior with standard retention
+
+### Test Statistics
+- **Total test examples:** 27
+- **Failures:** 0
+- **New per-directory tests:** 6
+- **Test file:** `spec/ruborg/per_file_backup_spec.rb`
+- **Test run time:** ~27 seconds
 
 ## Migration Path
 
