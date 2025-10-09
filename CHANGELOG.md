@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2025-10-09
+
+### Removed
+- **chattr/lsattr Functionality**: Completely removed Linux immutable attribute handling
+  - The feature caused issues with network filesystems (CIFS/SMB, NFS) that don't support chattr
+  - Users with truly immutable files should remove the attribute manually before using `--remove-source`
+  - Simplifies code and eliminates filesystem compatibility issues
+  - `--remove-source` now relies on standard file permissions only
+
+### Changed
+- File deletion now uses standard Ruby FileUtils methods without chattr checks
+- Improved compatibility with all filesystem types (local, network, cloud)
+
 ## [0.7.6] - 2025-10-09
 
 ### Fixed

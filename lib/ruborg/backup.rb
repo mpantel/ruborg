@@ -361,67 +361,8 @@ module Ruborg
         raise BorgError, "Refusing to delete system path: #{real_path}"
       end
 
-      # Check for immutable attribute and remove it if present
-      remove_immutable_attribute(real_path)
-
       @logger&.info("Removing file: #{real_path}")
       FileUtils.rm(real_path)
-    end
-
-    def remove_immutable_attribute(file_path)
-      # Check if lsattr command is available (Linux only)
-      return unless system("which lsattr > /dev/null 2>&1")
-
-      # Get file attributes
-      require "open3"
-      stdout, stderr, status = Open3.capture3("lsattr", file_path)
-
-      unless status.success?
-        @logger&.warn("Could not check attributes for #{file_path}: #{stderr.strip}")
-        return
-      end
-
-      # Check if immutable flag is set (format: "----i--------e----- /path/to/file")
-      # Extract the flags portion (everything before the file path)
-      flags = stdout.split.first || ""
-      return unless flags.include?("i")
-
-      @logger&.info("Removing immutable attribute from: #{file_path}")
-      _chattr_stdout, chattr_stderr, chattr_status = Open3.capture3("chattr", "-i", file_path)
-
-      unless chattr_status.success?
-        # Check if filesystem doesn't support chattr (common with NFS, CIFS, NTFS, etc.)
-        if chattr_stderr.include?("Operation not supported")
-          @logger&.warn(
-            "Filesystem does not support chattr operations for #{file_path}. " \
-            "This is normal for network filesystems (NFS, CIFS) or non-Linux filesystems. " \
-            "Attempting deletion anyway."
-          )
-          return
-        end
-
-        # Other errors (like permission denied) should still raise
-        @logger&.error("Failed to remove immutable attribute from #{file_path}: #{chattr_stderr.strip}")
-        raise BorgError, "Cannot remove immutable file: #{file_path}. Error: #{chattr_stderr.strip}"
-      end
-
-      @logger&.info("Successfully removed immutable attribute from: #{file_path}")
-    end
-
-    def remove_immutable_from_directory(dir_path)
-      # Check if lsattr command is available (Linux only)
-      return unless system("which lsattr > /dev/null 2>&1")
-
-      require "find"
-      require "open3"
-
-      # Remove immutable from directory itself
-      remove_immutable_attribute(dir_path)
-
-      # Recursively remove immutable from all files in directory
-      Find.find(dir_path) do |path|
-        remove_immutable_attribute(path) if File.file?(path)
-      end
     end
 
     def remove_source_files
@@ -457,12 +398,8 @@ module Ruborg
         @logger&.info("Removing #{file_type}: #{real_path}")
 
         if File.directory?(real_path)
-          # Remove immutable attributes from all files in directory
-          remove_immutable_from_directory(real_path)
           FileUtils.rm_rf(real_path, secure: true)
         elsif File.file?(real_path)
-          # Remove immutable attribute from single file
-          remove_immutable_attribute(real_path)
           FileUtils.rm(real_path)
         end
 

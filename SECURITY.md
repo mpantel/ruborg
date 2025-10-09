@@ -19,15 +19,7 @@ Ruborg implements several security measures to protect your backup operations:
 - Refuses to delete system directories even when targeted via symlinks
 - Uses `FileUtils.rm_rf` with `secure: true` option
 
-### 4. Immutable File Handling (Linux)
-- **Automatic Detection**: Checks for Linux immutable attributes (`lsattr`) before file deletion
-- **Safe Removal**: Removes immutable flag (`chattr -i`) only when necessary for deletion
-- **Platform-Aware**: Feature only active on Linux systems with lsattr/chattr commands available
-- **Error Handling**: Raises informative errors if immutable flag cannot be removed
-- **Audit Trail**: All immutable attribute operations are logged for security auditing
-- **Root Required**: Removing immutable attributes requires root privileges (use sudo with appropriate sudoers configuration)
-
-### 5. Safe YAML Loading
+### 4. Safe YAML Loading
 - Uses `YAML.safe_load_file` to prevent arbitrary code execution
 - Rejects YAML files containing Ruby objects or other dangerous constructs
 - Only permits basic data types and Symbol class
