@@ -163,7 +163,7 @@ repositories:
 
 **Configuration Features:**
 - **Automatic Type Validation**: Configuration is validated on startup to catch type errors early
-- **Validation Command**: Run `ruborg validate` to check configuration files for errors
+- **Validation Command**: Run `ruborg validate config` to check configuration files for errors
 - **Descriptions**: Add `description` field to document each repository's purpose
 - **Hostname Validation**: Optional `hostname` field to restrict backups to specific hosts (global or per-repository)
 - **Source Deletion Safety**: `allow_remove_source` flag to explicitly enable `--remove-source` option (default: disabled)
@@ -184,7 +184,7 @@ Ruborg automatically validates your configuration on startup. All commands check
 Check your configuration file for errors:
 
 ```bash
-ruborg validate --config ruborg.yml
+ruborg validate config --config ruborg.yml
 ```
 
 **Validation checks:**
@@ -471,20 +471,20 @@ Group: postgres
 Type: regular file
 ```
 
-### Check Repository Compatibility
+### Validate Repository Compatibility
 
 ```bash
 # Check specific repository compatibility with installed Borg version
-ruborg check --repository documents
+ruborg validate repo --repository documents
 
 # Check all repositories
-ruborg check --all
+ruborg validate repo --all
 
 # Check with data integrity verification (slower)
-ruborg check --repository documents --verify-data
+ruborg validate repo --repository documents --verify-data
 ```
 
-The `check` command verifies:
+The `validate repo` command verifies:
 - Installed Borg version
 - Repository format version
 - Compatibility between Borg and repository versions
@@ -494,11 +494,11 @@ The `check` command verifies:
 ```
 Borg version: 1.2.8
 
---- Checking repository: documents ---
+--- Validating repository: documents ---
   Repository version: 1
   ✓ Compatible with Borg 1.2.8
 
---- Checking repository: databases ---
+--- Validating repository: databases ---
   Repository version: 2
   ✗ INCOMPATIBLE with Borg 1.2.8
     Repository version 2 cannot be read by Borg 1.2.8
@@ -652,26 +652,26 @@ See [SECURITY.md](SECURITY.md) for detailed security information and best practi
 | Command | Description | Options |
 |---------|-------------|---------|
 | `init REPOSITORY` | Initialize a new Borg repository | `--passphrase`, `--passbolt-id`, `--log` |
-| `validate` | Validate configuration file for type errors | `--config`, `--log` |
+| `validate config` | Validate configuration file for type errors | `--config`, `--log` |
+| `validate repo` | Validate repository compatibility and integrity | `--config`, `--repository`, `--all`, `--verify-data`, `--log` |
 | `backup` | Create a backup using config file | `--config`, `--repository`, `--all`, `--name`, `--remove-source`, `--log` |
 | `list` | List archives or files in repository | `--config`, `--repository`, `--archive`, `--log` |
 | `restore ARCHIVE` | Restore files from archive | `--config`, `--repository`, `--destination`, `--path`, `--log` |
 | `metadata ARCHIVE` | Get file metadata from archive | `--config`, `--repository`, `--file`, `--log` |
 | `info` | Show repository information | `--config`, `--repository`, `--log` |
-| `check` | Check repository integrity and compatibility | `--config`, `--repository`, `--all`, `--verify-data`, `--log` |
 | `version` | Show ruborg version | None |
 
 ### Options
 
 - `--config`: Path to configuration file (default: `ruborg.yml`)
 - `--log`: Path to log file (overrides config, default: `~/.ruborg/logs/ruborg.log`)
-- `--repository` / `-r`: Repository name (optional for info, required for backup/list/restore/check unless --all)
-- `--all`: Process all repositories (backup and check commands)
+- `--repository` / `-r`: Repository name (optional for info, required for backup/list/restore/validate repo unless --all)
+- `--all`: Process all repositories (backup and validate repo commands)
 - `--name`: Custom archive name (backup command only)
 - `--remove-source`: Remove source files after successful backup (backup command only)
 - `--destination`: Destination directory for restore (restore command only)
 - `--path`: Specific file or directory to restore (restore command only)
-- `--verify-data`: Run full data integrity check (check command only, slower)
+- `--verify-data`: Run full data integrity check (validate repo command only, slower)
 
 ## Retention Policies
 
