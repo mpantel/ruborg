@@ -25,7 +25,7 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 📈 **Summary View** - Quick overview of all repositories and their configurations
 - 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
 - 🏠 **Hostname Validation** - NEW! Restrict backups to specific hosts (global or per-repository)
-- ✅ **Well-tested** - Comprehensive test suite with RSpec (294 examples, 0 failures)
+- ✅ **Well-tested** - Comprehensive test suite with RSpec (297 examples, 0 failures)
 - 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites

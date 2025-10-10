@@ -1306,4 +1306,30 @@ RSpec.describe Ruborg::CLI do
       end.to raise_error
     end
   end
+
+  describe "deprecated check command" do
+    it "shows deprecation notice and exits with error" do
+      expect do
+        expect do
+          described_class.start(["check", "--all"])
+        end.to output(/DEPRECATED COMMAND/).to_stdout
+      end.to raise_error(SystemExit)
+    end
+
+    it "provides migration guidance to validate repo" do
+      expect do
+        expect do
+          described_class.start(["check", "--all"])
+        end.to output(/validate repo/).to_stdout
+      end.to raise_error(SystemExit)
+    end
+
+    it "shows examples of new command syntax" do
+      expect do
+        expect do
+          described_class.start(["check"])
+        end.to output(/ruborg validate repo --repository/).to_stdout
+      end.to raise_error(SystemExit)
+    end
+  end
 end
