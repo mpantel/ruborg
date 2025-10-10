@@ -558,7 +558,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(valid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to output(/Configuration is valid/).to_stdout
       end
     end
@@ -578,7 +578,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
 
@@ -596,7 +596,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
 
@@ -614,7 +614,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
     end
@@ -634,7 +634,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
     end
@@ -654,7 +654,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
     end
@@ -677,7 +677,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(config_with_warnings)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to output(/WARNINGS/).to_stdout
       end
     end
@@ -701,7 +701,7 @@ RSpec.describe Ruborg::CLI do
 
         # Schema validation happens on config load, so it exits before validate command runs
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
     end
@@ -982,7 +982,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(valid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to output(/Configuration is valid/).to_stdout
       end
     end
@@ -1002,7 +1002,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
 
@@ -1020,7 +1020,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
 
@@ -1038,7 +1038,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
     end
@@ -1058,7 +1058,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
     end
@@ -1078,7 +1078,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(invalid_config)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
     end
@@ -1101,7 +1101,7 @@ RSpec.describe Ruborg::CLI do
         config_file = create_test_config(config_with_warnings)
 
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to output(/WARNINGS/).to_stdout
       end
     end
@@ -1125,7 +1125,7 @@ RSpec.describe Ruborg::CLI do
 
         # Schema validation happens on config load, so ConfigError is raised before validate command runs
         expect do
-          described_class.start(["validate", "--config", config_file])
+          described_class.start(["validate", "config", "--config", config_file])
         end.to raise_error(Ruborg::ConfigError)
       end
     end
@@ -1304,6 +1304,32 @@ RSpec.describe Ruborg::CLI do
       expect do
         described_class.start(["metadata", "non-existent", "--config", config_file, "--repository", "test-repo"])
       end.to raise_error
+    end
+  end
+
+  describe "deprecated check command" do
+    it "shows deprecation notice and exits with error" do
+      expect do
+        expect do
+          described_class.start(["check", "--all"])
+        end.to output(/DEPRECATED COMMAND/).to_stdout
+      end.to raise_error(SystemExit)
+    end
+
+    it "provides migration guidance to validate repo" do
+      expect do
+        expect do
+          described_class.start(["check", "--all"])
+        end.to output(/validate repo/).to_stdout
+      end.to raise_error(SystemExit)
+    end
+
+    it "shows examples of new command syntax" do
+      expect do
+        expect do
+          described_class.start(["check"])
+        end.to output(/ruborg validate repo --repository/).to_stdout
+      end.to raise_error(SystemExit)
     end
   end
 end

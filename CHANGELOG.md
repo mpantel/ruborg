@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Command Consolidation**: Unified validation commands for consistency
+  - `ruborg validate` renamed to `ruborg validate config` (validates YAML configuration)
+  - `ruborg check` renamed to `ruborg validate repo` (validates repository compatibility and integrity)
+  - Both commands now use consistent `validate` terminology
+  - `--verify-data` option remains available for `validate repo` to run full integrity checks
+  - Eliminates confusion between `validate` (config) and `check` (repository)
+  - Updated README with new command syntax and examples
+  - Updated all tests to use new command format
+
+### Added
+- **Migration Help**: `ruborg check` now displays a helpful deprecation notice
+  - Shows clear message explaining the command has been renamed
+  - Provides examples of the new `ruborg validate repo` syntax
+  - Exits with error to prevent confusion
+  - Logs deprecation warning for audit trail
+- **Enhanced Version Command**: `ruborg version` now shows both Ruborg and Borg versions with path
+  - Displays Ruborg version (gem version)
+  - Displays installed Borg version and executable path
+  - Example output: `borg 1.2.8 (/usr/local/bin/borg)`
+  - Gracefully handles missing Borg installation
+  - Helps users verify both tool versions and location at a glance
+
 ## [0.8.1] - 2025-10-09
 
 ### Added

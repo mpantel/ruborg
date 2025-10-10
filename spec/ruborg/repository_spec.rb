@@ -416,7 +416,7 @@ RSpec.describe Ruborg::Repository do
         retention_policy = { "keep_files_modified_within" => "1d" }
 
         expect(logger).to receive(:info).with(/Pruning per-file archives based on file modification time/)
-        expect(logger).to receive(:info).with(/Found \d+ archive\(s\) to evaluate for pruning/)
+        expect(logger).to receive(:info).with(/Found \d+ archive\(s\) in \d+ source director/)
 
         repo.prune(retention_policy, retention_mode: "per_file")
       end
@@ -438,12 +438,12 @@ RSpec.describe Ruborg::Repository do
         # Use a very short retention to ensure deletion
         retention_policy = { "keep_files_modified_within" => "0d" }
 
-        expect(logger).to receive(:info).with(/Pruning per-file archives/)
-        expect(logger).to receive(:info).with(/Found \d+ archive\(s\) to evaluate/)
-        expect(logger).to receive(:info).with(/Deleting \d+ archive\(s\)/)
+        expect(logger).to receive(:info).with(/Pruning per-file archives based on file modification time/)
+        expect(logger).to receive(:info).with(/Found \d+ archive\(s\) in \d+ source director/)
+        expect(logger).to receive(:info).with(/Deleting \d+ archive\(s\) from/)
         expect(logger).to receive(:debug).at_least(:once).with(/Archive .+ marked for deletion/)
         expect(logger).to receive(:debug).at_least(:once).with(/Deleting archive:/)
-        expect(logger).to receive(:info).with(/Pruned \d+ archive\(s\) based on file modification time/)
+        expect(logger).to receive(:info).with(/Pruned \d+ archive\(s\) total across all source directories/)
 
         repo.prune(retention_policy, retention_mode: "per_file")
       end

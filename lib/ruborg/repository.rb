@@ -477,6 +477,23 @@ module Ruborg
       match[1]
     end
 
+    # Get Borg path (full path to executable)
+    def self.borg_path(borg_command = "borg")
+      # If it's an absolute or relative path, expand it
+      if borg_command.include?("/")
+        return File.expand_path(borg_command)
+      end
+
+      # Otherwise, search in PATH
+      ENV["PATH"].split(File::PATH_SEPARATOR).each do |directory|
+        path = File.join(directory, borg_command)
+        return path if File.executable?(path)
+      end
+
+      # Not found in PATH, return the command as-is
+      borg_command
+    end
+
     # Execute borg version command (extracted for testing)
     def self.execute_version_command(borg_path = "borg")
       require "open3"

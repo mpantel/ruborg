@@ -184,8 +184,23 @@ module Ruborg
       raise
     end
 
-    desc "validate", "Validate configuration file for errors and type issues"
-    def validate_config
+    desc "validate TYPE", "Validate configuration file or repository (TYPE: config or repo)"
+    option :verify_data, type: :boolean, default: false, desc: "Verify repository data (slower, only for 'repo' type)"
+    option :all, type: :boolean, default: false, desc: "Validate all repositories (only for 'repo' type)"
+    def validate(type)
+      case type
+      when "config"
+        validate_config_implementation
+      when "repo"
+        validate_repo_implementation
+      else
+        raise ConfigError, "Invalid validation type: #{type}. Use 'config' or 'repo'"
+      end
+    end
+
+    private
+
+    def validate_config_implementation
       @logger.info("Validating configuration file: #{options[:config]}")
       config = Config.new(options[:config])
 
@@ -257,11 +272,123 @@ module Ruborg
       raise
     end
 
-    desc "version", "Show ruborg version"
+    def validate_repo_implementation
+      @logger.info("Validating repository compatibility")
+      config = Config.new(options[:config])
+      global_settings = config.global_settings
+      validate_hostname(global_settings)
+
+      # Show Borg version first
+      borg_version = Repository.borg_version
+      puts "\nBorg version: #{borg_version}\n\n"
+
+      repos_to_validate = if options[:all]
+                            config.repositories
+                          elsif options[:repository]
+                            repo_config = config.get_repository(options[:repository])
+                            raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
+
+                            [repo_config]
+                          else
+                            raise ConfigError, "Please specify --repository or --all"
+                          end
+
+      repos_to_validate.each do |repo_config|
+        validate_repository(repo_config, global_settings)
+      end
+    rescue Error => e
+      @logger.error("Validation failed: #{e.message}")
+      raise
+    end
+
+    def validate_repository(repo_config, global_settings)
+      repo_name = repo_config["name"]
+      puts "--- Validating repository: #{repo_name} ---"
+      @logger.info("Validating repository: #{repo_name}")
+
+      merged_config = global_settings.merge(repo_config)
+      validate_hostname(merged_config)
+      passphrase = fetch_passphrase_for_repo(merged_config)
+      borg_opts = merged_config["borg_options"] || {}
+      borg_path = merged_config["borg_path"]
+
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
+                                                 logger: @logger)
+
+      unless repo.exists?
+        puts "  ✗ Repository does not exist at #{repo_config["path"]}"
+        @logger.error("Repository does not exist: #{repo_name}")
+        puts ""
+        return
+      end
+
+      # Check compatibility
+      compatibility = repo.check_compatibility
+      puts "  Repository version: #{compatibility[:repository_version]}"
+
+      if compatibility[:compatible]
+        puts "  ✓ Compatible with Borg #{compatibility[:borg_version]}"
+        @logger.info("Repository #{repo_name} is compatible")
+      else
+        puts "  ✗ INCOMPATIBLE with Borg #{compatibility[:borg_version]}"
+        repo_ver = compatibility[:repository_version]
+        borg_ver = compatibility[:borg_version]
+        puts "    Repository version #{repo_ver} cannot be read by Borg #{borg_ver}"
+        puts "    Please upgrade Borg or migrate the repository"
+        @logger.error("Repository #{repo_name} is incompatible with installed Borg version")
+      end
+
+      # Run integrity check if requested
+      if options[:verify_data]
+        puts "  Running integrity check..."
+        @logger.info("Running integrity check on #{repo_name}")
+        repo.check
+        puts "  ✓ Integrity check passed"
+        @logger.info("Integrity check passed for #{repo_name}")
+      end
+
+      puts ""
+    rescue BorgError => e
+      puts "  ✗ Validation failed: #{e.message}"
+      @logger.error("Validation failed for #{repo_name}: #{e.message}")
+      puts ""
+    end
+
+    public
+
+    desc "version", "Show ruborg and borg versions"
     def version
       require_relative "version"
       puts "ruborg #{Ruborg::VERSION}"
       @logger.info("Version checked: #{Ruborg::VERSION}")
+
+      begin
+        borg_version = Repository.borg_version
+        borg_path = Repository.borg_path
+        puts "borg #{borg_version} (#{borg_path})"
+        @logger.info("Borg version: #{borg_version}, path: #{borg_path}")
+      rescue BorgError => e
+        puts "borg: not found or not executable"
+        @logger.warn("Could not determine Borg version: #{e.message}")
+      end
+    end
+
+    desc "check", "DEPRECATED: Use 'ruborg validate repo' instead"
+    option :verify_data, type: :boolean, default: false, desc: "Verify repository data (slower)"
+    option :all, type: :boolean, default: false, desc: "Validate all repositories"
+    def check
+      puts "\n⚠️  DEPRECATED COMMAND"
+      puts "══════════════════════════════════════════════════════════════════\n\n"
+      puts "The 'ruborg check' command has been renamed for consistency.\n"
+      puts "Please use: ruborg validate repo\n\n"
+      puts "Examples:"
+      puts "  ruborg validate repo --repository documents"
+      puts "  ruborg validate repo --all"
+      puts "  ruborg validate repo --repository documents --verify-data\n\n"
+      puts "══════════════════════════════════════════════════════════════════\n"
+
+      @logger.warn("Deprecated command 'check' was called. User should use 'validate repo' instead.")
+      exit 1
     end
 
     desc "metadata ARCHIVE", "Get file metadata from an archive"
@@ -310,92 +437,7 @@ module Ruborg
       raise
     end
 
-    desc "check", "Check repository integrity and compatibility"
-    option :verify_data, type: :boolean, default: false, desc: "Verify repository data (slower)"
-    option :all, type: :boolean, default: false, desc: "Check all repositories"
-    def check
-      @logger.info("Checking repository compatibility")
-      config = Config.new(options[:config])
-      global_settings = config.global_settings
-      validate_hostname(global_settings)
-
-      # Show Borg version first
-      borg_version = Repository.borg_version
-      puts "\nBorg version: #{borg_version}\n\n"
-
-      repos_to_check = if options[:all]
-                         config.repositories
-                       elsif options[:repository]
-                         repo_config = config.get_repository(options[:repository])
-                         raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
-
-                         [repo_config]
-                       else
-                         raise ConfigError, "Please specify --repository or --all"
-                       end
-
-      repos_to_check.each do |repo_config|
-        check_repository(repo_config, global_settings)
-      end
-    rescue Error => e
-      @logger.error("Check failed: #{e.message}")
-      raise
-    end
-
     private
-
-    def check_repository(repo_config, global_settings)
-      repo_name = repo_config["name"]
-      puts "--- Checking repository: #{repo_name} ---"
-      @logger.info("Checking repository: #{repo_name}")
-
-      merged_config = global_settings.merge(repo_config)
-      validate_hostname(merged_config)
-      passphrase = fetch_passphrase_for_repo(merged_config)
-      borg_opts = merged_config["borg_options"] || {}
-      borg_path = merged_config["borg_path"]
-
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
-                                                 logger: @logger)
-
-      unless repo.exists?
-        puts "  ✗ Repository does not exist at #{repo_config["path"]}"
-        @logger.error("Repository does not exist: #{repo_name}")
-        puts ""
-        return
-      end
-
-      # Check compatibility
-      compatibility = repo.check_compatibility
-      puts "  Repository version: #{compatibility[:repository_version]}"
-
-      if compatibility[:compatible]
-        puts "  ✓ Compatible with Borg #{compatibility[:borg_version]}"
-        @logger.info("Repository #{repo_name} is compatible")
-      else
-        puts "  ✗ INCOMPATIBLE with Borg #{compatibility[:borg_version]}"
-        repo_ver = compatibility[:repository_version]
-        borg_ver = compatibility[:borg_version]
-        puts "    Repository version #{repo_ver} cannot be read by Borg #{borg_ver}"
-        puts "    Please upgrade Borg or migrate the repository"
-        @logger.error("Repository #{repo_name} is incompatible with installed Borg version")
-      end
-
-      # Run integrity check if requested
-      if options[:verify_data]
-        puts "  Running integrity check..."
-        @logger.info("Running integrity check on #{repo_name}")
-        repo.check
-        puts "  ✓ Integrity check passed"
-        @logger.info("Integrity check passed for #{repo_name}")
-      end
-
-      puts ""
-    rescue BorgError => e
-      puts "  ✗ Check failed: #{e.message}"
-      @logger.error("Check failed for #{repo_name}: #{e.message}")
-      puts ""
-    end
 
     def show_repositories_summary(config)
       repositories = config.repositories
