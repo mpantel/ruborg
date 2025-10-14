@@ -3,12 +3,13 @@
 module Ruborg
   # Backup operations using Borg
   class Backup
-    def initialize(repository, config:, retention_mode: "standard", repo_name: nil, logger: nil)
+    def initialize(repository, config:, retention_mode: "standard", repo_name: nil, logger: nil, skip_hash_check: false)
       @repository = repository
       @config = config
       @retention_mode = retention_mode
       @repo_name = repo_name
       @logger = logger
+      @skip_hash_check = skip_hash_check
     end
 
     def create(name: nil, remove_source: false)
@@ -89,15 +90,13 @@ module Ruborg
             stored_size = stored_info[:size]
 
             if current_size == stored_size
-              # Size same -> verify content hasn't changed (paranoid mode)
-              current_hash = calculate_file_hash(file_path)
-              stored_hash = stored_info[:hash]
-
-              if current_hash == stored_hash
-                # Content truly unchanged - file is already safely backed up
-                puts " - Archive already exists (file unchanged)"
+              # Size same -> verify content hasn't changed (paranoid mode) unless skip_hash_check is enabled
+              if @skip_hash_check
+                # Skip hash check - assume file is unchanged based on size and mtime
+                puts " - Archive already exists (skipped hash check)"
                 @logger&.info(
-                  "[#{@repo_name}] Skipped #{file_path} - archive #{archive_name} already exists (file unchanged)"
+                  "[#{@repo_name}] Skipped #{file_path} - archive #{archive_name} already exists " \
+                  "(hash check skipped)"
                 )
                 skipped_count += 1
 
@@ -106,12 +105,29 @@ module Ruborg
 
                 next
               else
-                # Size same but content changed (rare: edited + truncated/padded to same size)
-                archive_name = find_next_version_name(archive_name, existing_archives)
-                @logger&.warn(
-                  "[#{@repo_name}] File content changed but size/mtime unchanged for #{file_path}, " \
-                  "using #{archive_name}"
-                )
+                current_hash = calculate_file_hash(file_path)
+                stored_hash = stored_info[:hash]
+
+                if current_hash == stored_hash
+                  # Content truly unchanged - file is already safely backed up
+                  puts " - Archive already exists (file unchanged)"
+                  @logger&.info(
+                    "[#{@repo_name}] Skipped #{file_path} - archive #{archive_name} already exists (file unchanged)"
+                  )
+                  skipped_count += 1
+
+                  # If remove_source is enabled, delete the file (it's already safely backed up)
+                  remove_single_file(file_path) if remove_source
+
+                  next
+                else
+                  # Size same but content changed (rare: edited + truncated/padded to same size)
+                  archive_name = find_next_version_name(archive_name, existing_archives)
+                  @logger&.warn(
+                    "[#{@repo_name}] File content changed but size/mtime unchanged for #{file_path}, " \
+                    "using #{archive_name}"
+                  )
+                end
               end
             else
               # Size changed but mtime same -> content changed, add version suffix

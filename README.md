@@ -167,9 +167,10 @@ repositories:
 - **Descriptions**: Add `description` field to document each repository's purpose
 - **Hostname Validation**: Optional `hostname` field to restrict backups to specific hosts (global or per-repository)
 - **Source Deletion Safety**: `allow_remove_source` flag to explicitly enable `--remove-source` option (default: disabled)
+- **Skip Hash Check**: Optional `skip_hash_check` flag to skip content hash verification for faster backups (per-file mode only)
 - **Type-Safe Booleans**: Strict boolean validation prevents configuration errors (must use `true`/`false`, not strings)
-- **Global Settings**: Hostname, compression, encryption, auto_init, allow_remove_source, log_file, borg_path, borg_options, and retention apply to all repositories
-- **Per-Repository Overrides**: Any global setting can be overridden at the repository level (including hostname, allow_remove_source, and custom borg_path)
+- **Global Settings**: Hostname, compression, encryption, auto_init, allow_remove_source, skip_hash_check, log_file, borg_path, borg_options, and retention apply to all repositories
+- **Per-Repository Overrides**: Any global setting can be overridden at the repository level (including hostname, allow_remove_source, skip_hash_check, and custom borg_path)
 - **Custom Borg Path**: Specify a custom Borg executable path if borg is not in PATH or to use a specific version
 - **Retention Policies**: Define how many backups to keep (hourly, daily, weekly, monthly, yearly)
 - **Multiple Sources**: Each repository can have multiple backup sources with their own exclude patterns
@@ -821,6 +822,60 @@ repositories:
 **Performance Note:** Per-file mode creates many archives (one per file). Borg handles this efficiently due to deduplication, but it's best suited for directories with hundreds to thousands of files rather than millions.
 
 **Backup vs Retention:** The per-file `retention_mode` only affects how archives are created and pruned. Traditional backup commands still work normally - you can list, restore, and check per-file archives just like standard archives.
+
+### Skip Hash Check for Faster Backups
+
+**NEW:** In per-file backup mode, you can optionally skip content hash verification for faster duplicate detection:
+
+```yaml
+repositories:
+  - name: project-files
+    path: /mnt/backup/project-files
+    retention_mode: per_file
+    skip_hash_check: true    # Skip SHA256 content hash verification
+    sources:
+      - name: projects
+        paths:
+          - /home/user/projects
+```
+
+**How it works:**
+- **Default (paranoid mode)**: Ruborg calculates SHA256 hash of file content to verify files haven't changed (even when size and mtime are identical)
+- **With skip_hash_check: true**: Ruborg trusts file path, size, and modification time for duplicate detection (skips hash calculation)
+
+**When to use:**
+- ✅ **Large directories** with thousands of files where hash calculation is slow
+- ✅ **Reliable filesystems** where modification time changes are trustworthy
+- ✅ **Regular backups** where files are unlikely to be manually modified with `touch -t`
+
+**When NOT to use:**
+- ❌ **Security-critical data** where you want maximum verification
+- ❌ **Untrusted sources** where files might be tampered with
+- ❌ **Systems with unreliable mtime** (rare, but some network filesystems)
+
+**Performance impact:**
+```yaml
+# Example: 10,000 unchanged files, average 50KB each
+# With skip_hash_check: false (default) - ~30 seconds (read + hash all files)
+# With skip_hash_check: true            - ~3 seconds  (read metadata only)
+```
+
+**Console output:**
+```
+# With skip_hash_check: true
+[1/10000] Backing up: /home/user/file1.txt - Archive already exists (skipped hash check)
+[2/10000] Backing up: /home/user/file2.txt - Archive already exists (skipped hash check)
+...
+✓ Per-file backup completed: 50 file(s) backed up, 9950 skipped (hash check skipped)
+
+# With skip_hash_check: false (default)
+[1/10000] Backing up: /home/user/file1.txt - Archive already exists (file unchanged)
+[2/10000] Backing up: /home/user/file2.txt - Archive already exists (file unchanged)
+...
+✓ Per-file backup completed: 50 file(s) backed up, 9950 skipped (unchanged)
+```
+
+**Security note:** Even with `skip_hash_check: true`, files are still verified by path, size, and mtime. The only difference is skipping the SHA256 content hash verification, which catches rare edge cases like manual file tampering with preserved timestamps.
 
 ### Automatic Pruning
 

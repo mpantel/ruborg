@@ -41,7 +41,7 @@ module Ruborg
 
     def global_settings
       @data.slice("passbolt", "compression", "encryption", "auto_init", "borg_options", "log_file", "retention",
-                  "auto_prune", "hostname", "allow_remove_source", "borg_path")
+                  "auto_prune", "hostname", "allow_remove_source", "borg_path", "skip_hash_check")
     end
 
     private
@@ -54,12 +54,12 @@ module Ruborg
     # Valid configuration keys at each level
     VALID_GLOBAL_KEYS = %w[
       hostname compression encryption auto_init auto_prune allow_remove_source
-      log_file borg_path passbolt borg_options retention repositories
+      log_file borg_path passbolt borg_options retention repositories skip_hash_check
     ].freeze
 
     VALID_REPOSITORY_KEYS = %w[
       name description path hostname retention_mode passbolt retention sources
-      compression encryption auto_init auto_prune borg_options allow_remove_source
+      compression encryption auto_init auto_prune borg_options allow_remove_source skip_hash_check
     ].freeze
 
     VALID_SOURCE_KEYS = %w[name paths exclude].freeze
@@ -122,8 +122,9 @@ module Ruborg
       errors.concat(validate_boolean_config(@data, "auto_init", "global"))
       errors.concat(validate_boolean_config(@data, "auto_prune", "global"))
       errors.concat(validate_boolean_config(@data, "allow_remove_source", "global"))
+      errors.concat(validate_boolean_config(@data, "skip_hash_check", "global"))
 
-      # Note: borg_options are validated as warnings in CLI validate command, not as errors here
+      # NOTE: borg_options are validated as warnings in CLI validate command, not as errors here
 
       # Validate global passbolt
       errors.concat(validate_passbolt_config(@data["passbolt"], "global")) if @data["passbolt"]
@@ -151,6 +152,7 @@ module Ruborg
         errors.concat(validate_boolean_config(repo, "auto_init", repo_name))
         errors.concat(validate_boolean_config(repo, "auto_prune", repo_name))
         errors.concat(validate_boolean_config(repo, "allow_remove_source", repo_name))
+        errors.concat(validate_boolean_config(repo, "skip_hash_check", repo_name))
 
         # Validate retention_mode
         if repo["retention_mode"] && !VALID_RETENTION_MODES.include?(repo["retention_mode"])
@@ -158,7 +160,7 @@ module Ruborg
                     "Must be one of: #{VALID_RETENTION_MODES.join(", ")}"
         end
 
-        # Note: borg_options are validated as warnings in CLI validate command, not as errors here
+        # NOTE: borg_options are validated as warnings in CLI validate command, not as errors here
 
         errors.concat(validate_passbolt_config(repo["passbolt"], repo_name)) if repo["passbolt"]
 

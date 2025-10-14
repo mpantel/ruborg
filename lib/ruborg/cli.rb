@@ -216,6 +216,7 @@ module Ruborg
       errors.concat(validate_boolean_setting(global_settings, "auto_init", "global"))
       errors.concat(validate_boolean_setting(global_settings, "auto_prune", "global"))
       errors.concat(validate_boolean_setting(global_settings, "allow_remove_source", "global"))
+      errors.concat(validate_boolean_setting(global_settings, "skip_hash_check", "global"))
 
       # Validate borg_options booleans
       if global_settings["borg_options"]
@@ -229,6 +230,7 @@ module Ruborg
         errors.concat(validate_boolean_setting(repo, "auto_init", repo_name))
         errors.concat(validate_boolean_setting(repo, "auto_prune", repo_name))
         errors.concat(validate_boolean_setting(repo, "allow_remove_source", repo_name))
+        errors.concat(validate_boolean_setting(repo, "skip_hash_check", repo_name))
 
         if repo["borg_options"]
           warnings.concat(validate_borg_option(repo["borg_options"], "allow_relocated_repo", repo_name))
@@ -620,10 +622,14 @@ module Ruborg
         end
       end
 
+      # Get skip_hash_check setting (defaults to false)
+      skip_hash_check = merged_config["skip_hash_check"]
+      skip_hash_check = false unless skip_hash_check == true
+
       # Create backup config wrapper
       backup_config = BackupConfig.new(repo_config, merged_config)
       backup = Backup.new(repo, config: backup_config, retention_mode: retention_mode, repo_name: repo_name,
-                                logger: @logger)
+                                logger: @logger, skip_hash_check: skip_hash_check)
 
       archive_name = options[:name] ? sanitize_archive_name(options[:name]) : nil
       @logger.info("Creating archive#{"s" if retention_mode == "per_file"}: #{archive_name || "auto-generated"}")

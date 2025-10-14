@@ -613,5 +613,4 @@ RSpec.describe Ruborg::Backup do
       backup.create
     end
   end
-
 end

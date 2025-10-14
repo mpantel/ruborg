@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2025-10-14
+
 ### Changed
 - **Command Consolidation**: Unified validation commands for consistency
   - `ruborg validate` renamed to `ruborg validate config` (validates YAML configuration)
@@ -18,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated all tests to use new command format
 
 ### Added
+- **Skip Hash Check Option**: New `skip_hash_check` configuration option for faster per-file backups
+  - Skips expensive SHA256 content hash calculation when file already exists
+  - Trusts file path, size, and modification time matching for duplicate detection
+  - Significantly speeds up backups with many unchanged files
+  - Configurable globally or per-repository
+  - Default: `false` (paranoid mode - always verify content hash)
+  - Use case: Large directories where mtime changes are reliable (most filesystems)
+  - Example: `skip_hash_check: true` in YAML configuration
 - **Migration Help**: `ruborg check` now displays a helpful deprecation notice
   - Shows clear message explaining the command has been renamed
   - Provides examples of the new `ruborg validate repo` syntax

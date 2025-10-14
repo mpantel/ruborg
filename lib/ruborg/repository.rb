@@ -480,9 +480,7 @@ module Ruborg
     # Get Borg path (full path to executable)
     def self.borg_path(borg_command = "borg")
       # If it's an absolute or relative path, expand it
-      if borg_command.include?("/")
-        return File.expand_path(borg_command)
-      end
+      return File.expand_path(borg_command) if borg_command.include?("/")
 
       # Otherwise, search in PATH
       ENV["PATH"].split(File::PATH_SEPARATOR).each do |directory|
