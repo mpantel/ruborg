@@ -866,6 +866,11 @@ repositories:
 
 **Performance Note:** Per-file mode creates many archives (one per file). Borg handles this efficiently due to deduplication, but it's best suited for directories with hundreds to thousands of files rather than millions.
 
+**Progress feedback:** During backup, ruborg shows real-time progress on stderr:
+- All spinner stages display an elapsed-time counter after 3 seconds (`Preparing... (12s)`) so long-running steps are always visible
+- Standard backup mode (`borg create`) streams file-level output and shows a running count of new/changed files in the spinner, with a final summary in the completion line (e.g. `✓ Archive created: my-repo-… — 42 new/changed file(s)`)
+- Per-file mode shows a progress bar with current/total file count
+
 **Inventory performance:** At the start of each per-file backup run, ruborg builds an inventory of existing archives using a single `borg list` call. Metadata is cached locally in a `.ruborg_cache.json` file beside the repository — subsequent runs serve the inventory entirely from cache with no additional Borg calls. The first run after introducing a large existing repository will be slower as it warms the cache, but all subsequent runs are fast regardless of how many archives exist.
 
 **Backup vs Retention:** The per-file `retention_mode` only affects how archives are created and pruned. Traditional backup commands still work normally - you can list, restore, and check per-file archives just like standard archives.
