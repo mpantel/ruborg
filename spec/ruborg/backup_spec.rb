@@ -613,4 +613,96 @@ RSpec.describe Ruborg::Backup do
       backup.create
     end
   end
+
+  describe "#parse_archive_comment (private)" do
+    let(:backup) { described_class.new(repository, config: backup_config) }
+
+    it "parses new format: path|||size|||hash|||source_dir" do
+      result = backup.send(:parse_archive_comment, "/data/file.txt|||1024|||deadbeef|||/data")
+      expect(result).to eq(path: "/data/file.txt", size: 1024, hash: "deadbeef", source_dir: "/data")
+    end
+
+    it "parses format 3: path|||size|||hash (no source_dir)" do
+      result = backup.send(:parse_archive_comment, "/data/file.txt|||512|||abc123")
+      expect(result).to eq(path: "/data/file.txt", size: 512, hash: "abc123", source_dir: "")
+    end
+
+    it "parses old format: path|||hash (no size or source_dir)" do
+      result = backup.send(:parse_archive_comment, "/data/file.txt|||oldhash")
+      expect(result).to eq(path: "/data/file.txt", size: 0, hash: "oldhash", source_dir: "")
+    end
+
+    it "parses oldest format: plain path string" do
+      result = backup.send(:parse_archive_comment, "/data/file.txt")
+      expect(result).to eq(path: "/data/file.txt", size: 0, hash: "", source_dir: "")
+    end
+
+    it "handles empty comment" do
+      result = backup.send(:parse_archive_comment, "")
+      expect(result).to eq(path: "", size: 0, hash: "", source_dir: "")
+    end
+  end
+
+  describe "#get_existing_archive_names cache integration" do
+    let(:backup) { described_class.new(repository, config: backup_config, retention_mode: "per_file") }
+
+    let(:borg_list_output) do
+      JSON.generate({ "archives" => [
+        { "name" => "cached-archive" },
+        { "name" => "new-archive" }
+      ] })
+    end
+
+    let(:borg_info_output) do
+      JSON.generate({ "archives" => [{ "comment" => "/new/file.txt|||200|||newhash|||/new" }] })
+    end
+
+    let(:mock_cache) do
+      cache = instance_double(Ruborg::ArchiveCache)
+      allow(cache).to receive(:fetch).and_return(cache)
+      allow(cache).to receive(:[]).with("cached-archive")
+        .and_return({ path: "/cached/file.txt", size: 100, hash: "cachedhash", source_dir: "/cached" })
+      allow(cache).to receive(:[]).with("new-archive").and_return(nil)
+      allow(cache).to receive(:store)
+      allow(cache).to receive(:save_if_changed)
+      cache
+    end
+
+    before do
+      allow(Ruborg::ArchiveCache).to receive(:new).and_return(mock_cache)
+      allow(Open3).to receive(:capture3)
+        .with(anything, anything, "list", repo_path, "--json")
+        .and_return([borg_list_output, "", double(success?: true)])
+      allow(Open3).to receive(:capture3)
+        .with(anything, anything, "info", "#{repo_path}::new-archive", "--json")
+        .and_return([borg_info_output, "", double(success?: true)])
+    end
+
+    it "returns cached metadata without calling borg info" do
+      result = backup.send(:get_existing_archive_names)
+
+      expect(Open3).not_to have_received(:capture3)
+        .with(anything, anything, "info", "#{repo_path}::cached-archive", "--json")
+      expect(result["cached-archive"]).to include(path: "/cached/file.txt", hash: "cachedhash")
+    end
+
+    it "calls borg info only for archives missing from cache" do
+      backup.send(:get_existing_archive_names)
+
+      expect(Open3).to have_received(:capture3)
+        .with(anything, anything, "info", "#{repo_path}::new-archive", "--json").once
+    end
+
+    it "stores newly fetched metadata in cache" do
+      backup.send(:get_existing_archive_names)
+
+      expect(mock_cache).to have_received(:store)
+        .with("new-archive", hash_including(path: "/new/file.txt", hash: "newhash"))
+    end
+
+    it "saves cache after processing" do
+      backup.send(:get_existing_archive_names)
+      expect(mock_cache).to have_received(:save_if_changed)
+    end
+  end
 end

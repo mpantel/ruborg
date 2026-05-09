@@ -459,12 +459,11 @@ module Ruborg
       puts "=" * 60
     end
 
-    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/PerceivedComplexity
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     def get_existing_archive_names
       require "json"
       require "open3"
 
-      # First get list of archives
       cmd = [@repository.borg_path, "list", @repository.path, "--json"]
       env = {}
       passphrase = @repository.instance_variable_get(:@passphrase)
@@ -475,73 +474,52 @@ module Ruborg
       stdout, stderr, status = Open3.capture3(env, *cmd)
       raise BorgError, "Failed to list archives: #{stderr}" unless status.success?
 
-      json_data = JSON.parse(stdout)
-      archives = json_data["archives"] || []
+      archives = JSON.parse(stdout)["archives"] || []
+      cache = ArchiveCache.new(@repository.path).fetch
 
-      # Build hash by querying each archive individually for comment
-      # This is necessary because 'borg list' doesn't include comments
-      archives.each_with_object({}) do |archive, hash|
+      result = archives.each_with_object({}) do |archive, hash|
         archive_name = archive["name"]
 
-        # Query this specific archive to get the comment
-        info_cmd = [@repository.borg_path, "info", "#{@repository.path}::#{archive_name}", "--json"]
-        info_stdout, _, info_status = Open3.capture3(env, *info_cmd)
-
-        unless info_status.success?
-          # If we can't get info for this archive, skip it with defaults
-          hash[archive_name] = { path: "", size: 0, hash: "", source_dir: "" }
+        if (cached = cache[archive_name])
+          hash[archive_name] = cached
           next
         end
 
-        info_data = JSON.parse(info_stdout)
-        archive_info = info_data["archives"]&.first || {}
-        comment = archive_info["comment"] || ""
+        info_cmd = [@repository.borg_path, "info", "#{@repository.path}::#{archive_name}", "--json"]
+        info_stdout, _, info_status = Open3.capture3(env, *info_cmd)
 
-        # Parse comment based on format
-        # The comment field stores metadata as: path|||size|||hash|||source_dir (using ||| as delimiter)
-        # For backward compatibility, handle old formats:
-        #   - Old format 1: plain path (no |||)
-        #   - Old format 2: path|||hash (2 parts)
-        #   - Old format 3: path|||size|||hash (3 parts)
-        #   - New format: path|||size|||hash|||source_dir (4 parts)
-        if comment.include?("|||")
-          parts = comment.split("|||")
-          file_path = parts[0]
-          if parts.length >= 4
-            # New format: path|||size|||hash|||source_dir
-            file_size = parts[1].to_i
-            file_hash = parts[2] || ""
-            source_dir = parts[3] || ""
-          elsif parts.length >= 3
-            # Format 3: path|||size|||hash (no source_dir)
-            file_size = parts[1].to_i
-            file_hash = parts[2] || ""
-            source_dir = ""
-          else
-            # Old format: path|||hash (size and source_dir not available)
-            file_size = 0
-            file_hash = parts[1] || ""
-            source_dir = ""
-          end
-        else
-          # Oldest format: comment is just the path string
-          file_path = comment
-          file_size = 0
-          file_hash = ""
-          source_dir = ""
-        end
+        metadata = if info_status.success?
+                     parse_archive_comment(JSON.parse(info_stdout).dig("archives", 0, "comment") || "")
+                   else
+                     { path: "", size: 0, hash: "", source_dir: "" }
+                   end
 
-        hash[archive_name] = {
-          path: file_path,
-          size: file_size,
-          hash: file_hash,
-          source_dir: source_dir
-        }
+        cache.store(archive_name, metadata)
+        hash[archive_name] = metadata
       end
+
+      cache.save_if_changed
+      result
     rescue JSON::ParserError => e
       raise BorgError, "Failed to parse archive info: #{e.message}"
     end
-    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength, Metrics/PerceivedComplexity
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
+
+    def parse_archive_comment(comment)
+      if comment.include?("|||")
+        parts = comment.split("|||")
+        file_path = parts[0]
+        if parts.length >= 4
+          { path: file_path, size: parts[1].to_i, hash: parts[2] || "", source_dir: parts[3] || "" }
+        elsif parts.length >= 3
+          { path: file_path, size: parts[1].to_i, hash: parts[2] || "", source_dir: "" }
+        else
+          { path: file_path, size: 0, hash: parts[1] || "", source_dir: "" }
+        end
+      else
+        { path: comment, size: 0, hash: "", source_dir: "" }
+      end
+    end
 
     def find_next_version_name(base_name, existing_archives)
       version = 2

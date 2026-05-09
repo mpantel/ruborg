@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "thor"
+require "json"
 
 module Ruborg
   # Command-line interface for ruborg
@@ -358,6 +359,37 @@ module Ruborg
 
     public
 
+    desc "catalog", "Search or browse the local archive metadata catalog (no borg calls)"
+    option :search, type: :string, desc: "Regex pattern to filter by file path"
+    option :stats, type: :boolean, default: false, desc: "Show catalog statistics instead of listing entries"
+    option :json, type: :boolean, default: false, desc: "Output as JSON"
+    def catalog
+      config = Config.new(options[:config])
+
+      raise ConfigError, "Please specify --repository" unless options[:repository]
+
+      repo_config = config.get_repository(options[:repository])
+      raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
+
+      global_settings = config.global_settings
+      merged_config = global_settings.merge(repo_config)
+      cat = Catalog.new(repo_config["path"])
+
+      if options[:stats]
+        print_catalog_stats(cat.stats, options[:json])
+      elsif options[:search]
+        results = cat.search(options[:search])
+        print_catalog_entries(results, options[:json])
+      else
+        print_catalog_entries(cat.list, options[:json])
+      end
+
+      @logger.info("Catalog query on repository '#{merged_config["name"]}'")
+    rescue Error => e
+      @logger.error("Catalog failed: #{e.message}")
+      raise
+    end
+
     desc "version", "Show ruborg and borg versions"
     def version
       require_relative "version"
@@ -440,6 +472,49 @@ module Ruborg
     end
 
     private
+
+    def print_catalog_entries(entries, as_json)
+      if as_json
+        puts JSON.generate(entries.map { |e| stringify_entry(e) })
+        return
+      end
+
+      if entries.empty?
+        puts "No entries found."
+        return
+      end
+
+      puts "\n#{"FILE PATH".ljust(55)}  #{"SIZE".ljust(10)}  ARCHIVE"
+      puts "-" * 90
+      entries.each do |e|
+        puts "#{truncate(e[:path].to_s, 55).ljust(55)}  #{format_size(e[:size].to_i).ljust(10)}  #{e[:archive_name]}"
+      end
+      puts "\n#{entries.size} entry/entries."
+    end
+
+    def print_catalog_stats(stats, as_json)
+      if as_json
+        puts JSON.generate(stats)
+        return
+      end
+
+      puts "\n═══════════════════════════════════════════════════════════════"
+      puts "  CATALOG STATISTICS"
+      puts "═══════════════════════════════════════════════════════════════\n\n"
+      puts "  Total archives : #{stats[:total_archives]}"
+      puts "  Unique files   : #{stats[:unique_paths]}"
+      puts "  Source dirs    : #{stats[:source_dirs]}"
+      puts "  Total size     : #{format_size(stats[:total_size])}"
+      puts ""
+    end
+
+    def stringify_entry(entry)
+      entry.transform_keys(&:to_s)
+    end
+
+    def truncate(str, max)
+      str.length > max ? "...#{str[-(max - 3)..]}" : str
+    end
 
     def show_repositories_summary(config)
       repositories = config.repositories
@@ -529,7 +604,7 @@ module Ruborg
         unit_index += 1
       end
 
-      format("%.2f %s", size, units[unit_index])
+      "#{format("%.2f", size)} #{units[unit_index]}"
     end
 
     def get_passphrase(passphrase, passbolt_id)
