@@ -1365,6 +1365,15 @@ RSpec.describe Ruborg::CLI do
       end
     end
 
+    it "raises ConfigError when --break and --force are both given" do
+      FileUtils.mkdir_p(repo_path)
+      FileUtils.touch(File.join(repo_path, "config"))
+      expect do
+        described_class.start(["lock", "--config", config_file, "--repository", "test-repo",
+                               "--break", "--force", "--yes"])
+      end.to raise_error(Ruborg::ConfigError, /--break or --force/)
+    end
+
     context "when repository is locked" do
       before do
         FileUtils.mkdir_p(repo_path)
@@ -1372,15 +1381,15 @@ RSpec.describe Ruborg::CLI do
         FileUtils.touch(File.join(repo_path, "lock.exclusive"))
       end
 
-      it "exits 1 with guidance when no --break flag" do
+      it "exits 1 with guidance when no --break or --force flag" do
         expect do
           expect do
             described_class.start(["lock", "--config", config_file, "--repository", "test-repo"])
-          end.to output(/--break --yes/).to_stderr
+          end.to output(/--break --yes.*--force --yes/m).to_stderr
         end.to raise_error(SystemExit)
       end
 
-      it "exits 1 with guidance when --break given without --yes" do
+      it "exits 1 when --break given without --yes" do
         expect do
           expect do
             described_class.start(["lock", "--config", config_file, "--repository", "test-repo", "--break"])
@@ -1388,8 +1397,23 @@ RSpec.describe Ruborg::CLI do
         end.to raise_error(SystemExit)
       end
 
-      it "breaks the lock and confirms when --break --yes are both given", :borg do
-        # Need a real borg repo; use directory-style lock (Borg 1.4+)
+      it "exits 1 when --force given without --yes" do
+        expect do
+          expect do
+            described_class.start(["lock", "--config", config_file, "--repository", "test-repo", "--force"])
+          end.to output(/--yes/).to_stderr
+        end.to raise_error(SystemExit)
+      end
+
+      it "force-removes lock files and confirms with --force --yes" do
+        expect do
+          described_class.start(["lock", "--config", config_file, "--repository", "test-repo",
+                                 "--force", "--yes"])
+        end.to output(/Force-removed/).to_stdout
+        expect(File.exist?(File.join(repo_path, "lock.exclusive"))).to be false
+      end
+
+      it "breaks the lock via borg when --break --yes are both given", :borg do
         FileUtils.rm_rf(repo_path)
         real_repo = Ruborg::Repository.new(repo_path, passphrase: "test-pass")
         real_repo.create

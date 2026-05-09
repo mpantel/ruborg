@@ -391,12 +391,16 @@ module Ruborg
     end
 
     desc "lock", "Check for and optionally break a Borg repository lock"
-    option :break, type: :boolean, default: false, desc: "Break the lock (requires --yes)"
-    option :yes,   type: :boolean, default: false, desc: "Confirm the destructive break operation"
+    option :break, type: :boolean, default: false,
+                   desc: "Break the lock via borg break-lock (requires --yes)"
+    option :force, type: :boolean, default: false,
+                   desc: "Force-remove lock files directly without invoking borg (requires --yes)"
+    option :yes,   type: :boolean, default: false, desc: "Confirm the destructive operation"
     def lock
       config = Config.new(options[:config])
 
       raise ConfigError, "Please specify --repository" unless options[:repository]
+      raise ConfigError, "Use --break or --force, not both" if options[:break] && options[:force]
 
       repo_config = config.get_repository(options[:repository])
       raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
@@ -419,19 +423,25 @@ module Ruborg
       warn "Lock detected on repository '#{repo_config["name"]}' (#{repo_config["path"]})"
       @logger.warn("Lock detected on repository '#{repo_config["name"]}'")
 
-      unless options[:break]
-        warn "  Run with --break --yes to remove the lock."
+      unless options[:break] || options[:force]
+        warn "  Run with --break --yes (via borg) or --force --yes (direct removal)."
         exit 1
       end
 
       unless options[:yes]
-        warn "  Add --yes to confirm breaking the lock."
+        warn "  Add --yes to confirm."
         exit 1
       end
 
-      repo.break_lock
-      puts "Lock broken for repository '#{repo_config["name"]}'"
-      @logger.info("Lock broken for repository '#{repo_config["name"]}'")
+      if options[:force]
+        removed = repo.force_break_lock
+        puts "Force-removed lock files for '#{repo_config["name"]}': #{removed.join(", ")}"
+        @logger.info("Force-removed lock files for '#{repo_config["name"]}'")
+      else
+        repo.break_lock
+        puts "Lock broken for repository '#{repo_config["name"]}'"
+        @logger.info("Lock broken for repository '#{repo_config["name"]}'")
+      end
     rescue Error => e
       @logger.error("Lock command failed: #{e.message}")
       raise

@@ -19,6 +19,8 @@ module Ruborg
       File.directory?(@path) && File.exist?(File.join(@path, "config"))
     end
 
+    MINIMUM_BORG_VERSION = "1.2.0"
+
     def locked?
       File.exist?(File.join(@path, "lock.exclusive")) ||
         File.exist?(File.join(@path, "lock.roster"))
@@ -27,9 +29,25 @@ module Ruborg
     def break_lock
       raise BorgError, "Repository does not exist at #{@path}" unless exists?
 
+      check_borg_version!
       cmd = [@borg_path, "break-lock", @path]
       execute_borg_command(cmd)
       @logger&.info("Lock broken for repository at #{@path}")
+    end
+
+    def force_break_lock
+      raise BorgError, "Repository does not exist at #{@path}" unless exists?
+
+      require "fileutils"
+      removed = %w[lock.exclusive lock.roster].select do |name|
+        target = File.join(@path, name)
+        next false unless File.exist?(target)
+
+        FileUtils.rm_rf(target)
+        true
+      end
+      @logger&.info("Force-removed lock files at #{@path}: #{removed.join(", ")}")
+      removed
     end
 
     def create
@@ -604,6 +622,20 @@ module Ruborg
       end
 
       borg_path
+    end
+
+    def check_borg_version!
+      version = self.class.borg_version(@borg_path)
+      return if version_sufficient?(version, MINIMUM_BORG_VERSION)
+
+      raise BorgError,
+            "Borg #{MINIMUM_BORG_VERSION}+ is required but found #{version}. Please upgrade Borg."
+    end
+
+    def version_sufficient?(actual, minimum)
+      actual_parts  = actual.split(".").map(&:to_i)
+      minimum_parts = minimum.split(".").map(&:to_i)
+      (actual_parts <=> minimum_parts) >= 0
     end
 
     def find_in_path(command)
