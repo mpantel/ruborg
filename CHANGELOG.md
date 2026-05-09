@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `borg break-lock` (used by `--break`) already handles both locks atomically — no change needed there
   - Respects `BORG_CACHE_DIR` when set
   - Fixes [#10](https://github.com/mpantel/ruborg/issues/10)
+- **Per-file backup: O(N) `borg info` calls replaced with a single `borg list --format` pass** — previously, building the archive inventory called `borg info` once per archive not yet in the `ArchiveCache`. On large repositories this produced hundreds of sequential Borg subprocesses per run, each briefly acquiring the Borg cache lock, causing cumulative lock timeout errors. The inventory now uses a single `borg list --format '{name} {comment}\n'` call which retrieves name and metadata comment for all archives at once, warming the cache transparently in the same pass (combined warm-and-continue). Subsequent runs hit the cache with zero additional Borg calls.
+  - Fixes [#12](https://github.com/mpantel/ruborg/issues/12)
 
 ## [0.9.3] - 2026-05-09
 
