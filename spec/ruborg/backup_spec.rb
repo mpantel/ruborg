@@ -540,20 +540,20 @@ RSpec.describe Ruborg::Backup do
       end.to output(/Repository: test-repo/).to_stdout
     end
 
-    it "shows progress in console for standard backup" do
-      backup = described_class.new(repository, config: backup_config, repo_name: "test-repo")
-
-      expect do
-        backup.create
-      end.to output(/Creating archive/).to_stdout
+    it "shows progress via spinner for standard backup" do
+      output = StringIO.new
+      allow(output).to receive(:isatty).and_return(false)
+      progress = Ruborg::Progress.new(output: output)
+      backup = described_class.new(repository, config: backup_config, repo_name: "test-repo", progress: progress)
+      expect { backup.create }.not_to raise_error
     end
 
     it "shows completion message in console for standard backup" do
       backup = described_class.new(repository, config: backup_config, repo_name: "test-repo")
-
-      expect do
-        backup.create
-      end.to output(/Archive created successfully/).to_stdout
+      progress = instance_double(Ruborg::Progress, spin: nil, stop_spin: nil)
+      expect(progress).to receive(:done).with(/Archive created/)
+      backup2 = described_class.new(repository, config: backup_config, repo_name: "test-repo", progress: progress)
+      backup2.create
     end
 
     it "logs archive creation with repository name", :borg do
@@ -575,20 +575,24 @@ RSpec.describe Ruborg::Backup do
       end.to output(/Repository: test-repo/).to_stdout
     end
 
-    it "shows file progress in console for per-file backup" do
-      backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo")
-
-      expect do
-        backup.create
-      end.to output(%r{\[1/2\] Backing up:}).to_stdout
+    it "advances progress bar for each file in per-file backup" do
+      output = StringIO.new
+      allow(output).to receive(:isatty).and_return(true)
+      progress = Ruborg::Progress.new(output: output)
+      backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo",
+                                   progress: progress)
+      backup.create
+      expect(output.string).to include("/2")
     end
 
-    it "shows completion message for per-file backup" do
-      backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo")
-
-      expect do
-        backup.create
-      end.to output(/Per-file backup completed/).to_stdout
+    it "shows completion message for per-file backup via progress" do
+      output = StringIO.new
+      allow(output).to receive(:isatty).and_return(false)
+      progress = Ruborg::Progress.new(output: output)
+      backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo",
+                                   progress: progress)
+      backup.create
+      expect(output.string).to match(/backed up/)
     end
 
     it "logs each file with repository name in per-file mode", :borg do

@@ -658,14 +658,23 @@ module Ruborg
       end
     end
 
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     def backup_repository(repo_config, global_settings)
       repo_name = repo_config["name"]
       puts "\n--- Backing up repository: #{repo_name} ---"
       @logger.info("Backing up repository: #{repo_name}")
 
-      # Merge global settings with repo-specific settings (repo-specific takes precedence)
       merged_config = global_settings.merge(repo_config)
       validate_hostname(merged_config)
+
+      retention_mode = merged_config["retention_mode"] || "standard"
+      auto_prune = merged_config["auto_prune"] == true
+      retention_policy = merged_config["retention"]
+      will_prune = auto_prune && retention_policy && !retention_policy.empty?
+      stage_total = will_prune ? 3 : 2
+
+      progress = Progress.new
+      progress.stage(1, stage_total, "Verifying repository: #{repo_name}")
 
       passphrase = fetch_passphrase_for_repo(merged_config)
       borg_opts = merged_config["borg_options"] || {}
@@ -673,20 +682,13 @@ module Ruborg
       repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
                                                  logger: @logger)
 
-      # Auto-initialize if configured
-      # Use strict boolean checking: only true enables, everything else disables
-      auto_init = merged_config["auto_init"]
-      auto_init = false unless auto_init == true
+      auto_init = merged_config["auto_init"] == true
       if auto_init && !repo.exists?
         @logger.info("Auto-initializing repository at #{repo_config["path"]}")
         repo.create
         puts "Repository auto-initialized at #{repo_config["path"]}"
       end
 
-      # Get retention mode (defaults to standard)
-      retention_mode = merged_config["retention_mode"] || "standard"
-
-      # Validate remove_source permission with strict type checking
       if options[:remove_source]
         allow_remove_source = merged_config["allow_remove_source"]
         unless allow_remove_source.is_a?(TrueClass)
@@ -697,14 +699,14 @@ module Ruborg
         end
       end
 
-      # Get skip_hash_check setting (defaults to false)
-      skip_hash_check = merged_config["skip_hash_check"]
-      skip_hash_check = false unless skip_hash_check == true
+      skip_hash_check = merged_config["skip_hash_check"] == true
 
-      # Create backup config wrapper
+      backup_label = retention_mode == "per_file" ? "Backing up files (per-file mode)" : "Creating archive"
+      progress.stage(2, stage_total, backup_label)
+
       backup_config = BackupConfig.new(repo_config, merged_config)
       backup = Backup.new(repo, config: backup_config, retention_mode: retention_mode, repo_name: repo_name,
-                                logger: @logger, skip_hash_check: skip_hash_check)
+                                logger: @logger, skip_hash_check: skip_hash_check, progress: progress)
 
       archive_name = options[:name] ? sanitize_archive_name(options[:name]) : nil
       @logger.info("Creating archive#{"s" if retention_mode == "per_file"}: #{archive_name || "auto-generated"}")
@@ -715,28 +717,19 @@ module Ruborg
       backup.create(name: archive_name, remove_source: options[:remove_source])
       @logger.info("Backup created successfully")
 
-      if retention_mode == "per_file"
-        puts "✓ Per-file backups created"
-      else
-        puts "✓ Backup created: #{archive_name || "auto-generated"}"
-      end
       puts "  Sources removed" if options[:remove_source]
 
-      # Auto-prune if configured and retention policy exists
-      # Use strict boolean checking: only true enables, everything else disables
-      auto_prune = merged_config["auto_prune"]
-      auto_prune = false unless auto_prune == true
-      retention_policy = merged_config["retention"]
-
-      return unless auto_prune && retention_policy && !retention_policy.empty?
+      return unless will_prune
 
       mode_desc = retention_mode == "per_file" ? "per-file mode" : "standard mode"
+      progress.stage(3, stage_total, "Pruning old archives (#{mode_desc})")
+      progress.spin("Pruning...")
       @logger.info("Auto-pruning repository: #{repo_name} (#{mode_desc})")
-      puts "  Pruning old backups (#{mode_desc})..."
       repo.prune(retention_policy, retention_mode: retention_mode)
       @logger.info("Pruning completed successfully for #{repo_name}")
-      puts "  ✓ Pruning completed"
+      progress.done("Pruning completed")
     end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
 
     def fetch_passphrase_for_repo(repo_config)
       passbolt_config = repo_config["passbolt"]
