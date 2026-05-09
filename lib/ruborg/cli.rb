@@ -713,6 +713,7 @@ module Ruborg
 
       progress = Progress.new
       progress.stage(1, stage_total, "Verifying repository: #{repo_name}")
+      progress.spin("Preparing...")
 
       passphrase = fetch_passphrase_for_repo(merged_config)
       lock_wait = (merged_config["lock_wait"] || DEFAULT_LOCK_WAIT).to_i

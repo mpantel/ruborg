@@ -32,10 +32,15 @@ module Ruborg
       print_repository_header
       @progress&.spin("Creating archive: #{archive_name}")
 
-      cmd = build_create_command(archive_name)
-      execute_borg_command(cmd)
+      count = if @progress
+                stream_borg_create(archive_name)
+              else
+                execute_borg_command(build_create_command(archive_name))
+                0
+              end
 
-      @progress&.done("Archive created: #{archive_name}")
+      summary = count.positive? ? " — #{count} new/changed file(s)" : ""
+      @progress&.done("Archive created: #{archive_name}#{summary}")
       @logger&.info("[#{@repo_name}] Created archive #{archive_name} with #{@config.backup_paths.size} source(s)")
 
       remove_source_files if remove_source
@@ -342,17 +347,41 @@ module Ruborg
       cmd
     end
 
-    def execute_borg_command(cmd)
+    def borg_env
       env = {}
       passphrase = @repository.instance_variable_get(:@passphrase)
       env["BORG_PASSPHRASE"] = passphrase if passphrase
       env["BORG_RELOCATED_REPO_ACCESS_IS_OK"] = "yes"
       env["BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK"] = "yes"
+      env
+    end
 
-      result = system(env, *cmd, in: "/dev/null")
+    def execute_borg_command(cmd)
+      result = system(borg_env, *cmd, in: "/dev/null")
       raise BorgError, "Borg command failed: #{cmd.join(" ")}" unless result
 
       result
+    end
+
+    # Run borg create with --list --filter AM, streaming stderr to count
+    # new/changed files and update the spinner label in real time.
+    def stream_borg_create(archive_name)
+      require "open3"
+
+      cmd = build_create_command(archive_name) + ["--list", "--filter", "AM"]
+      file_count = 0
+
+      Open3.popen3(borg_env, *cmd, in: "/dev/null") do |_sin, _sout, stderr, wait_thr|
+        stderr.each_line do |line|
+          next unless line.match?(/\A[AM] /)
+
+          file_count += 1
+          @progress.update_spin("Creating archive: #{archive_name} — #{file_count} new/changed file(s)")
+        end
+        raise BorgError, "Borg command failed: #{cmd.join(" ")}" unless wait_thr.value.success?
+      end
+
+      file_count
     end
 
     def remove_single_file(file_path)

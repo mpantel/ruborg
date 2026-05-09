@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-05-09
+
 ### Fixed
 - **`ruborg lock` now detects Borg cache locks** — previously, a stale cache lock (`~/.cache/borg/<id>/lock.exclusive`) was invisible to `ruborg lock`, which only checked repository-level lock files. The command now reports both the repository lock and the cache lock state independently, so a cache-only stale lock no longer produces a misleading "No lock found" result.
   - `Repository#cache_locked?` — pure filesystem check on the cache lock; reads the repo ID from `<repo>/config` without invoking Borg or requiring a passphrase
@@ -16,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixes [#10](https://github.com/mpantel/ruborg/issues/10)
 - **Per-file backup: O(N) `borg info` calls replaced with a single `borg list --format` pass** — previously, building the archive inventory called `borg info` once per archive not yet in the `ArchiveCache`. On large repositories this produced hundreds of sequential Borg subprocesses per run, each briefly acquiring the Borg cache lock, causing cumulative lock timeout errors. The inventory now uses a single `borg list --format '{name} {comment}\n'` call which retrieves name and metadata comment for all archives at once, warming the cache transparently in the same pass (combined warm-and-continue). Subsequent runs hit the cache with zero additional Borg calls.
   - Fixes [#12](https://github.com/mpantel/ruborg/issues/12)
+- **Progress display improvements** — backup runs now give richer real-time feedback (fixes [#14](https://github.com/mpantel/ruborg/issues/14)):
+  - **Elapsed time in all spinners**: any step that takes more than 3 seconds shows a live `(Ns)` counter so long-running stages are visually distinguishable from fast ones
+  - **Stage 1 is always animated**: the "Verifying repository" stage now spins immediately (passphrase fetch, auto-init, lock-wait) rather than flashing and disappearing
+  - **Standard backup file count**: `borg create` runs with `--list --filter AM`; the spinner updates in real time with the count of new/changed files being archived, and the completion line reports the final count (e.g. `✓ Archive created: my-repo-… — 42 new/changed file(s)`)
+  - **`Progress#update_spin`**: new method for updating a spinner's label mid-operation without restarting it
 
 ## [0.9.3] - 2026-05-09
 

@@ -13,6 +13,8 @@ module Ruborg
       @output = output
       @tty = output.respond_to?(:isatty) && output.isatty
       @spinner_thread = nil
+      @spin_label = nil
+      @spin_start = nil
     end
 
     # Print a numbered stage header: "[2/3] Label"
@@ -23,19 +25,30 @@ module Ruborg
     end
 
     # Start a spinner on the current line for an indeterminate operation.
+    # Appends elapsed time after 3 seconds so long-running steps are visible.
     # Call stop_spin (or done) to halt it.
     def spin(label)
       stop_spin
       return unless @tty
 
+      @spin_label = label
+      @spin_start = Time.now
       frame = 0
       @spinner_thread = Thread.new do
         loop do
-          @output.print "\r  #{SPINNER_FRAMES[frame % SPINNER_FRAMES.size]}  #{label}"
+          elapsed = (Time.now - @spin_start).to_i
+          time_str = elapsed >= 3 ? " (#{elapsed}s)" : ""
+          @output.print "\r  #{SPINNER_FRAMES[frame % SPINNER_FRAMES.size]}  #{@spin_label}#{time_str}"
           frame += 1
           sleep 0.1
         end
       end
+    end
+
+    # Update the label on a running spinner without restarting it.
+    # Safe to call from the main thread while the spinner runs in the background.
+    def update_spin(label)
+      @spin_label = label
     end
 
     # Stop the spinner and erase its line.

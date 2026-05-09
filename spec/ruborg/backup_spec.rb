@@ -550,7 +550,7 @@ RSpec.describe Ruborg::Backup do
 
     it "shows completion message in console for standard backup" do
       described_class.new(repository, config: backup_config, repo_name: "test-repo")
-      progress = instance_double(Ruborg::Progress, spin: nil, stop_spin: nil)
+      progress = instance_double(Ruborg::Progress, spin: nil, stop_spin: nil, update_spin: nil)
       expect(progress).to receive(:done).with(/Archive created/)
       backup2 = described_class.new(repository, config: backup_config, repo_name: "test-repo", progress: progress)
       backup2.create

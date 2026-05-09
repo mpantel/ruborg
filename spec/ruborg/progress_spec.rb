@@ -142,6 +142,19 @@ RSpec.describe Ruborg::Progress do
     end
   end
 
+  describe "#update_spin" do
+    it "changes the label read by the spinner thread" do
+      tty_progress.spin("Initial label")
+      tty_progress.update_spin("Updated label")
+      expect(tty_progress.instance_variable_get(:@spin_label)).to eq("Updated label")
+      tty_progress.stop_spin
+    end
+
+    it "is a no-op when no spinner is running" do
+      expect { tty_progress.update_spin("label") }.not_to raise_error
+    end
+  end
+
   describe "non-TTY plain text degradation" do
     it "stage still prints output when not a TTY" do
       progress.stage(1, 2, "Verifying")
