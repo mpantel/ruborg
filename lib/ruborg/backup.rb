@@ -458,51 +458,41 @@ module Ruborg
       puts "=" * 60
     end
 
-    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     def get_existing_archive_names
-      require "json"
       require "open3"
 
-      cmd = [@repository.borg_path, "list", @repository.path, "--json"]
       env = {}
       passphrase = @repository.instance_variable_get(:@passphrase)
       env["BORG_PASSPHRASE"] = passphrase if passphrase
       env["BORG_RELOCATED_REPO_ACCESS_IS_OK"] = "yes"
       env["BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK"] = "yes"
 
+      # Single borg call: fetch name + comment for every archive at once.
+      # Replaces the previous O(N) borg info loop and warms the cache in the same pass.
+      cmd = [@repository.borg_path, "list", @repository.path, "--format", "{name} {comment}\n"]
       stdout, stderr, status = Open3.capture3(env, *cmd)
       raise BorgError, "Failed to list archives: #{stderr}" unless status.success?
 
-      archives = JSON.parse(stdout)["archives"] || []
       cache = ArchiveCache.new(@repository.path).fetch
+      result = {}
 
-      result = archives.each_with_object({}) do |archive, hash|
-        archive_name = archive["name"]
+      stdout.each_line do |line|
+        archive_name, comment = line.chomp.split(" ", 2)
+        next unless archive_name
 
         if (cached = cache[archive_name])
-          hash[archive_name] = cached
+          result[archive_name] = cached
           next
         end
 
-        info_cmd = [@repository.borg_path, "info", "#{@repository.path}::#{archive_name}", "--json"]
-        info_stdout, _, info_status = Open3.capture3(env, *info_cmd)
-
-        metadata = if info_status.success?
-                     parse_archive_comment(JSON.parse(info_stdout).dig("archives", 0, "comment") || "")
-                   else
-                     { path: "", size: 0, hash: "", source_dir: "" }
-                   end
-
+        metadata = parse_archive_comment(comment || "")
         cache.store(archive_name, metadata)
-        hash[archive_name] = metadata
+        result[archive_name] = metadata
       end
 
       cache.save_if_changed
       result
-    rescue JSON::ParserError => e
-      raise BorgError, "Failed to parse archive info: #{e.message}"
     end
-    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
 
     def parse_archive_comment(comment)
       if comment.include?("|||")
