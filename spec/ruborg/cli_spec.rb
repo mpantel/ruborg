@@ -79,13 +79,13 @@ RSpec.describe Ruborg::CLI do
     it "creates a backup using config file" do
       expect do
         described_class.start(["backup", "--config", config_file, "--repository", "test-repo"])
-      end.to output(/Backup created/).to_stdout
+      end.to output(/Verifying repository/).to_stderr
     end
 
     it "creates a backup with custom name" do
       expect do
         described_class.start(["backup", "--config", config_file, "--repository", "test-repo", "--name", "custom-backup"])
-      end.to output(/Backup created/).to_stdout
+      end.to output(/Verifying repository/).to_stderr
     end
 
     it "removes source files when --remove-source is specified and allowed" do
@@ -228,7 +228,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_with_hostname, "--repository", "test-repo"])
-        end.to output(/Backup created/).to_stdout
+        end.to output(/Verifying repository/).to_stderr
       end
     end
 
@@ -277,7 +277,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_without_hostname, "--repository", "test-repo"])
-        end.to output(/Backup created/).to_stdout
+        end.to output(/Verifying repository/).to_stderr
       end
     end
 
@@ -309,7 +309,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_with_repo_hostname, "--repository", "test-repo"])
-        end.to output(/Backup created/).to_stdout
+        end.to output(/Verifying repository/).to_stderr
       end
 
       it "raises error when repository-specific hostname does not match" do
@@ -403,7 +403,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_without_allow, "--repository", "test-repo"])
-        end.to output(/Backup created/).to_stdout
+        end.to output(/Verifying repository/).to_stderr
       end
     end
 
@@ -827,7 +827,7 @@ RSpec.describe Ruborg::CLI do
 
         expect do
           described_class.start(["backup", "--config", config_file_without_allow, "--repository", "test-repo"])
-        end.to output(/Backup created/).to_stdout
+        end.to output(/Verifying repository/).to_stderr
       end
     end
 

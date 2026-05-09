@@ -3,13 +3,14 @@
 module Ruborg
   # Backup operations using Borg
   class Backup
-    def initialize(repository, config:, retention_mode: "standard", repo_name: nil, logger: nil, skip_hash_check: false)
+    def initialize(repository, config:, retention_mode: "standard", repo_name: nil, logger: nil, skip_hash_check: false, progress: nil)
       @repository = repository
       @config = config
       @retention_mode = retention_mode
       @repo_name = repo_name
       @logger = logger
       @skip_hash_check = skip_hash_check
+      @progress = progress
     end
 
     def create(name: nil, remove_source: false)
@@ -27,36 +28,31 @@ module Ruborg
     def create_standard_archive(name, remove_source)
       archive_name = name || Time.now.strftime("%Y-%m-%d_%H-%M-%S")
 
-      # Show repository header in console only
       print_repository_header
-
-      # Show progress in console
-      puts "Creating archive: #{archive_name}"
+      @progress&.spin("Creating archive: #{archive_name}")
 
       cmd = build_create_command(archive_name)
-
       execute_borg_command(cmd)
 
-      # Log successful action
+      @progress&.done("Archive created: #{archive_name}")
       @logger&.info("[#{@repo_name}] Created archive #{archive_name} with #{@config.backup_paths.size} source(s)")
-      puts "✓ Archive created successfully"
 
       remove_source_files if remove_source
     end
 
     # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/PerceivedComplexity, Metrics/BlockNesting
     def create_per_file_archives(name_prefix, remove_source)
-      # Collect all files from backup paths
+      @progress&.spin("Collecting files...")
       files_to_backup = collect_files_from_paths(@config.backup_paths, @config.exclude_patterns)
+      @progress&.stop_spin
 
       raise BorgError, "No files found to backup" if files_to_backup.empty?
 
-      # Get list of existing archives for duplicate detection
+      @progress&.spin("Loading archive catalog...")
       existing_archives = get_existing_archive_names
+      @progress&.done("Catalog loaded — #{existing_archives.size} archive(s) known")
 
-      # Show repository header in console only
       print_repository_header
-
       puts "Found #{files_to_backup.size} file(s) to backup"
 
       backed_up_count = 0
@@ -78,8 +74,8 @@ module Ruborg
         # Ensure archive name doesn't exceed 255 characters (filesystem limit)
         archive_name = name_prefix || build_archive_name(@repo_name, sanitized_filename, path_hash, file_mtime)
 
-        # Show progress in console
-        print "  [#{index + 1}/#{files_to_backup.size}] Backing up: #{file_path}"
+        @progress&.bar(index + 1, files_to_backup.size, File.basename(file_path))
+        $stderr.print "  [#{index + 1}/#{files_to_backup.size}] Backing up: #{file_path}" unless @progress
 
         # Check if archive already exists AND contains this exact file
         if existing_archives.key?(archive_name)
@@ -149,7 +145,7 @@ module Ruborg
         cmd = build_per_file_create_command(archive_name, file_path, source_dir)
 
         execute_borg_command(cmd)
-        puts ""
+        puts "" unless @progress
 
         # Log successful action with details
         @logger&.info("[#{@repo_name}] Archived #{file_path} in archive #{archive_name}")
@@ -160,11 +156,13 @@ module Ruborg
       end
       # rubocop:enable Metrics/BlockLength
 
-      if skipped_count.positive?
-        puts "✓ Per-file backup completed: #{backed_up_count} file(s) backed up, #{skipped_count} skipped (unchanged)"
-      else
-        puts "✓ Per-file backup completed: #{backed_up_count} file(s) backed up"
-      end
+      summary = if skipped_count.positive?
+                  "#{backed_up_count} file(s) backed up, #{skipped_count} skipped (unchanged)"
+                else
+                  "#{backed_up_count} file(s) backed up"
+                end
+      @progress&.done(summary)
+      puts "✓ Per-file backup completed: #{summary}" unless @progress
     end
     # rubocop:enable Metrics/AbcSize, Metrics/MethodLength, Metrics/PerceivedComplexity, Metrics/BlockNesting
 

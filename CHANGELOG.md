@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-05-09
+
+### Added
+- **CLI progress display**: Real-time feedback during backup operations
+  - Named stages printed to `$stderr`: `[1/3] Verifying repository`, `[2/3] Backing up files`, `[3/3] Pruning`
+  - Animated spinner for indeterminate operations (cache loading, `borg create`, pruning)
+  - Inline progress bar for per-file backup mode: `[=========>     ] 42/120  filename.jpg`
+  - Stage count adapts to the operation: 2 stages without pruning, 3 with
+  - Degrades gracefully to plain text lines when output is piped or redirected (non-TTY)
+  - All progress output goes to `$stderr` — `--json` stdout and piped output remain clean
+  - No external gem dependencies — pure Ruby with ANSI `\r` rewrite
+  - Fixes [#6](https://github.com/mpantel/ruborg/issues/6)
+
 ## [0.9.1] - 2026-05-09
 
 ### Added
