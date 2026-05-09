@@ -94,9 +94,9 @@ RSpec.describe Ruborg::ArchiveCache do
   describe "#entries" do
     before do
       write_cache({
-        "archive-a" => { "path" => "/a/file.txt", "size" => 100, "hash" => "aa", "source_dir" => "/a" },
-        "archive-b" => { "path" => "/b/file.txt", "size" => 200, "hash" => "bb", "source_dir" => "/b" }
-      })
+                    "archive-a" => { "path" => "/a/file.txt", "size" => 100, "hash" => "aa", "source_dir" => "/a" },
+                    "archive-b" => { "path" => "/b/file.txt", "size" => 200, "hash" => "bb", "source_dir" => "/b" }
+                  })
     end
 
     it "returns one entry per cached archive" do
@@ -244,8 +244,8 @@ RSpec.describe Ruborg::ArchiveCache do
 
       it "loads archives when scp succeeds" do
         remote_data = JSON.generate({ "version" => 1, "archives" => {
-          "remote-arch" => { "path" => "/r", "size" => 9, "hash" => "xy", "source_dir" => "/r" }
-        } })
+                                      "remote-arch" => { "path" => "/r", "size" => 9, "hash" => "xy", "source_dir" => "/r" }
+                                    } })
 
         allow(Open3).to receive(:capture2e) do |*_args, **_kwargs|
           # Write data to the tempfile argument (last positional arg)
@@ -283,7 +283,7 @@ RSpec.describe Ruborg::ArchiveCache do
         ssh_cache.store("arch", { path: "/p", size: 1, hash: "", source_dir: "" })
 
         expect(Open3).to receive(:capture2e).with("scp", "-q", "-B", anything, remote_ref)
-          .and_return(["", double(success?: true)])
+                                            .and_return(["", double(success?: true)])
         # Also allow the fresh-fetch scp call
         allow(Open3).to receive(:capture2e).and_return(["", double(success?: false)])
 

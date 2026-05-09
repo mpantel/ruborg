@@ -25,13 +25,15 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 📈 **Summary View** - Quick overview of all repositories and their configurations
 - 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
 - 🏠 **Hostname Validation** - NEW! Restrict backups to specific hosts (global or per-repository)
-- ✅ **Well-tested** - Comprehensive test suite with RSpec (297 examples, 0 failures)
+- 🔒 **Lock Management** - Detect and break stale Borg repository locks with `ruborg lock`
+- ⏳ **Lock-aware Backups** - Pre-flight lock detection with configurable wait timeout before backup
+- ✅ **Well-tested** - Comprehensive test suite with RSpec (412 examples, 0 failures)
 - 🔒 **Security-focused** - Path validation, safe YAML loading, command injection protection
 
 ## Prerequisites
 
 - Ruby >= 3.2.0
-- [Borg Backup](https://www.borgbackup.org/) installed and available in PATH
+- [Borg Backup](https://www.borgbackup.org/) >= 1.4.0 installed and available in PATH
 - [Passbolt CLI](https://github.com/passbolt/go-passbolt-cli) (optional, for password management)
 
 ### Installing Borg Backup
@@ -169,8 +171,9 @@ repositories:
 - **Source Deletion Safety**: `allow_remove_source` flag to explicitly enable `--remove-source` option (default: disabled)
 - **Skip Hash Check**: Optional `skip_hash_check` flag to skip content hash verification for faster backups (per-file mode only)
 - **Type-Safe Booleans**: Strict boolean validation prevents configuration errors (must use `true`/`false`, not strings)
-- **Global Settings**: Hostname, compression, encryption, auto_init, allow_remove_source, skip_hash_check, log_file, borg_path, borg_options, and retention apply to all repositories
-- **Per-Repository Overrides**: Any global setting can be overridden at the repository level (including hostname, allow_remove_source, skip_hash_check, and custom borg_path)
+- **Lock Wait Timeout**: Optional `lock_wait` (integer, seconds) — how long ruborg waits for a locked repository before aborting. Also passed as `--lock-wait` to Borg when set. Default: 300 seconds (pre-flight), Borg default: 1 second (when not configured)
+- **Global Settings**: Hostname, compression, encryption, auto_init, allow_remove_source, skip_hash_check, lock_wait, log_file, borg_path, borg_options, and retention apply to all repositories
+- **Per-Repository Overrides**: Any global setting can be overridden at the repository level (including hostname, allow_remove_source, skip_hash_check, lock_wait, and custom borg_path)
 - **Custom Borg Path**: Specify a custom Borg executable path if borg is not in PATH or to use a specific version
 - **Retention Policies**: Define how many backups to keep (hourly, daily, weekly, monthly, yearly)
 - **Multiple Sources**: Each repository can have multiple backup sources with their own exclude patterns
@@ -472,6 +475,38 @@ Group: postgres
 Type: regular file
 ```
 
+### Manage Repository Locks
+
+Borg uses lock files to prevent concurrent access. If a backup crashes, stale locks can block all subsequent operations. Use `ruborg lock` to inspect and clear them.
+
+```bash
+# Check if a repository is locked (exits 0 = no lock, 1 = locked)
+ruborg lock --repository documents
+
+# Break the lock via borg break-lock (requires Borg >= 1.4.0)
+ruborg lock --repository documents --break --yes
+
+# Force-remove lock files directly (no Borg required, last resort)
+ruborg lock --repository documents --force --yes
+```
+
+**Lock-aware backups:** When `ruborg backup` starts and detects a lock, it waits up to `lock_wait` seconds (default 300) for the lock to clear before aborting:
+
+```
+[1/2] Verifying repository: documents
+  Repository locked — waiting for lock to clear (5s / 300s)…
+  Repository locked — waiting for lock to clear (10s / 300s)…
+  ✓ Lock cleared
+[2/2] Creating archive
+```
+
+Configure the timeout in `ruborg.yml` (also passed as `--lock-wait` to Borg when set):
+
+```yaml
+# Wait up to 60s for a lock before aborting; also passes --lock-wait 60 to borg commands
+lock_wait: 60
+```
+
 ### Validate Repository Compatibility
 
 ```bash
@@ -659,6 +694,7 @@ See [SECURITY.md](SECURITY.md) for detailed security information and best practi
 | `list` | List archives or files in repository | `--config`, `--repository`, `--archive`, `--log` |
 | `restore ARCHIVE` | Restore files from archive | `--config`, `--repository`, `--destination`, `--path`, `--log` |
 | `metadata ARCHIVE` | Get file metadata from archive | `--config`, `--repository`, `--file`, `--log` |
+| `lock` | Check for and optionally break a repository lock | `--config`, `--repository`, `--break`, `--force`, `--yes`, `--log` |
 | `info` | Show repository information | `--config`, `--repository`, `--log` |
 | `version` | Show ruborg version | None |
 

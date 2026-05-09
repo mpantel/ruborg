@@ -549,7 +549,7 @@ RSpec.describe Ruborg::Backup do
     end
 
     it "shows completion message in console for standard backup" do
-      backup = described_class.new(repository, config: backup_config, repo_name: "test-repo")
+      described_class.new(repository, config: backup_config, repo_name: "test-repo")
       progress = instance_double(Ruborg::Progress, spin: nil, stop_spin: nil)
       expect(progress).to receive(:done).with(/Archive created/)
       backup2 = described_class.new(repository, config: backup_config, repo_name: "test-repo", progress: progress)
@@ -580,7 +580,7 @@ RSpec.describe Ruborg::Backup do
       allow(output).to receive(:isatty).and_return(true)
       progress = Ruborg::Progress.new(output: output)
       backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo",
-                                   progress: progress)
+                                               progress: progress)
       backup.create
       expect(output.string).to include("/2")
     end
@@ -590,7 +590,7 @@ RSpec.describe Ruborg::Backup do
       allow(output).to receive(:isatty).and_return(false)
       progress = Ruborg::Progress.new(output: output)
       backup = described_class.new(repository, config: backup_config, retention_mode: "per_file", repo_name: "test-repo",
-                                   progress: progress)
+                                               progress: progress)
       backup.create
       expect(output.string).to match(/backed up/)
     end
@@ -652,9 +652,9 @@ RSpec.describe Ruborg::Backup do
 
     let(:borg_list_output) do
       JSON.generate({ "archives" => [
-        { "name" => "cached-archive" },
-        { "name" => "new-archive" }
-      ] })
+                      { "name" => "cached-archive" },
+                      { "name" => "new-archive" }
+                    ] })
     end
 
     let(:borg_info_output) do
@@ -665,7 +665,7 @@ RSpec.describe Ruborg::Backup do
       cache = instance_double(Ruborg::ArchiveCache)
       allow(cache).to receive(:fetch).and_return(cache)
       allow(cache).to receive(:[]).with("cached-archive")
-        .and_return({ path: "/cached/file.txt", size: 100, hash: "cachedhash", source_dir: "/cached" })
+                                  .and_return({ path: "/cached/file.txt", size: 100, hash: "cachedhash", source_dir: "/cached" })
       allow(cache).to receive(:[]).with("new-archive").and_return(nil)
       allow(cache).to receive(:store)
       allow(cache).to receive(:save_if_changed)

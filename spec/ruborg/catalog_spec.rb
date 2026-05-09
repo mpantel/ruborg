@@ -3,13 +3,9 @@
 require "spec_helper"
 
 RSpec.describe Ruborg::Catalog do
+  subject(:catalog) { described_class.new(repo_path) }
+
   let(:repo_path) { File.join(tmpdir, "test_repo") }
-  let(:cache_path) { "#{repo_path}.ruborg_cache.json" }
-
-  def write_cache(archives)
-    File.write(cache_path, JSON.generate({ "version" => 1, "archives" => archives }))
-  end
-
   let(:sample_archives) do
     {
       "2024-01-10_docs_report" => { "path" => "/docs/report.pdf", "size" => 204_800, "hash" => "aabb", "source_dir" => "/docs" },
@@ -19,10 +15,13 @@ RSpec.describe Ruborg::Catalog do
       "2024-04-01_docs_report" => { "path" => "/docs/report.pdf", "size" => 212_992, "hash" => "3344", "source_dir" => "/docs" }
     }
   end
+  let(:cache_path) { "#{repo_path}.ruborg_cache.json" }
+
+  def write_cache(archives)
+    File.write(cache_path, JSON.generate({ "version" => 1, "archives" => archives }))
+  end
 
   before { write_cache(sample_archives) }
-
-  subject(:catalog) { described_class.new(repo_path) }
 
   describe "#list" do
     it "returns all entries" do
@@ -35,9 +34,7 @@ RSpec.describe Ruborg::Catalog do
     end
 
     it "includes :archive_name in each entry" do
-      catalog.list.each do |entry|
-        expect(entry).to have_key(:archive_name)
-      end
+      expect(catalog.list).to all(have_key(:archive_name))
     end
 
     it "includes :path, :size, :hash, :source_dir with symbol keys" do
@@ -91,7 +88,7 @@ RSpec.describe Ruborg::Catalog do
     end
 
     it "finds all versions of the same file path" do
-      results = catalog.search(%r{report\.pdf$})
+      results = catalog.search(/report\.pdf$/)
       expect(results.size).to eq(2)
       archive_names = results.map { |e| e[:archive_name] }
       expect(archive_names).to contain_exactly("2024-01-10_docs_report", "2024-04-01_docs_report")

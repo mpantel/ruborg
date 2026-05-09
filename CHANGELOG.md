@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-05-09
+
+### Added
+- **`ruborg lock` command**: Check for and optionally break stale Borg repository locks
+  - `ruborg lock --repository NAME` — exits 0 if no lock, exits 1 if lock detected
+  - `ruborg lock --repository NAME --break --yes` — breaks the lock via `borg break-lock`
+  - `ruborg lock --repository NAME --force --yes` — force-removes lock files directly without invoking Borg (useful when Borg itself can't run)
+  - `--break` and `--force` are mutually exclusive; both require `--yes` as a safety guard
+  - `Repository#locked?` — pure filesystem check on `lock.exclusive` / `lock.roster`, no Borg invocation or passphrase required
+  - `Repository#break_lock` — delegates to `borg break-lock`; requires Borg >= 1.4.0
+  - `Repository#force_break_lock` — direct filesystem removal of lock files/dirs; no Borg needed
+  - Status output (lock present/absent) goes to stdout for scriptability; warning messages go to `$stderr`
+- **Pre-flight lock detection during backup**: If a repository is locked when `backup` starts, ruborg waits and retries instead of failing immediately
+  - Polls every 5 seconds, prints elapsed time via the spinner
+  - Aborts with a clear error message after `lock_wait` seconds (default 300), suggesting `ruborg lock` to inspect or clear
+- **`lock_wait` config key**: Optional integer (seconds). When set, also passed as `--lock-wait` to all Borg commands so Borg itself waits for mid-operation locks. Omitting the key leaves Borg at its own default (1 second)
+- **Minimum Borg version**: Raised to 1.4.0; `break_lock` verifies this before invoking `borg break-lock`
+- **`CLI::DEFAULT_LOCK_WAIT = 300`**: Named constant for the pre-flight wait timeout
+- Fixes [#8](https://github.com/mpantel/ruborg/issues/8)
+
 ## [0.9.2] - 2026-05-09
 
 ### Added

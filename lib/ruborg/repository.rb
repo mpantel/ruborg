@@ -6,17 +6,49 @@ module Ruborg
   class Repository
     attr_reader :path, :borg_path
 
-    def initialize(path, passphrase: nil, borg_options: {}, borg_path: nil, logger: nil)
+    def initialize(path, passphrase: nil, borg_options: {}, borg_path: nil, lock_wait: nil, logger: nil)
       @original_path = path
       @path = validate_repo_path(path)
       @passphrase = passphrase
       @borg_options = borg_options
       @borg_path = validate_borg_path(borg_path || "borg")
+      @lock_wait = lock_wait&.to_i
       @logger = logger
     end
 
     def exists?
       File.directory?(@path) && File.exist?(File.join(@path, "config"))
+    end
+
+    MINIMUM_BORG_VERSION = "1.4.0"
+
+    def locked?
+      File.exist?(File.join(@path, "lock.exclusive")) ||
+        File.exist?(File.join(@path, "lock.roster"))
+    end
+
+    def break_lock
+      raise BorgError, "Repository does not exist at #{@path}" unless exists?
+
+      check_borg_version!
+      cmd = [@borg_path, "break-lock", @path]
+      execute_borg_command(cmd)
+      @logger&.info("Lock broken for repository at #{@path}")
+    end
+
+    def force_break_lock
+      raise BorgError, "Repository does not exist at #{@path}" unless exists?
+
+      require "fileutils"
+      removed = %w[lock.exclusive lock.roster].select do |name|
+        target = File.join(@path, name)
+        next false unless File.exist?(target)
+
+        FileUtils.rm_rf(target)
+        true
+      end
+      @logger&.info("Force-removed lock files at #{@path}: #{removed.join(", ")}")
+      removed
     end
 
     def create
@@ -593,6 +625,26 @@ module Ruborg
       borg_path
     end
 
+    def inject_lock_wait(cmd)
+      return cmd if @lock_wait.nil? || cmd[1] == "break-lock"
+
+      [cmd[0], "--lock-wait", @lock_wait.to_s] + cmd[1..]
+    end
+
+    def check_borg_version!
+      version = self.class.borg_version(@borg_path)
+      return if version_sufficient?(version, MINIMUM_BORG_VERSION)
+
+      raise BorgError,
+            "Borg #{MINIMUM_BORG_VERSION}+ is required but found #{version}. Please upgrade Borg."
+    end
+
+    def version_sufficient?(actual, minimum)
+      actual_parts  = actual.split(".").map(&:to_i)
+      minimum_parts = minimum.split(".").map(&:to_i)
+      (actual_parts <=> minimum_parts) >= 0
+    end
+
     def find_in_path(command)
       ENV["PATH"].split(File::PATH_SEPARATOR).each do |directory|
         path = File.join(directory, command)
@@ -615,6 +667,9 @@ module Ruborg
 
       env["BORG_RELOCATED_REPO_ACCESS_IS_OK"] = allow_relocated ? "yes" : "no"
       env["BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK"] = allow_unencrypted ? "yes" : "no"
+
+      # Inject --lock-wait for all commands except break-lock (which breaks, not acquires)
+      cmd = inject_lock_wait(cmd)
 
       # Redirect stdin from /dev/null to prevent interactive prompts
       result = system(env, *cmd, in: "/dev/null")

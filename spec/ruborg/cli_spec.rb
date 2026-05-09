@@ -1332,4 +1332,141 @@ RSpec.describe Ruborg::CLI do
       end.to raise_error(SystemExit)
     end
   end
+
+  describe "lock command" do
+    before do
+      allow_any_instance_of(Ruborg::RuborgLogger).to receive(:info)
+      allow_any_instance_of(Ruborg::RuborgLogger).to receive(:warn)
+      allow_any_instance_of(Ruborg::RuborgLogger).to receive(:error)
+    end
+
+    it "raises ConfigError when --repository is not specified" do
+      expect do
+        described_class.start(["lock", "--config", config_file])
+      end.to raise_error(Ruborg::ConfigError, /specify --repository/)
+    end
+
+    it "raises ConfigError when repository is not found in config" do
+      expect do
+        described_class.start(["lock", "--config", config_file, "--repository", "nonexistent"])
+      end.to raise_error(Ruborg::ConfigError, /not found/)
+    end
+
+    context "when repository has no lock" do
+      before do
+        FileUtils.mkdir_p(repo_path)
+        FileUtils.touch(File.join(repo_path, "config"))
+      end
+
+      it "prints 'No lock found' and exits cleanly" do
+        expect do
+          described_class.start(["lock", "--config", config_file, "--repository", "test-repo"])
+        end.to output(/No lock found/).to_stdout
+      end
+    end
+
+    it "raises ConfigError when --break and --force are both given" do
+      FileUtils.mkdir_p(repo_path)
+      FileUtils.touch(File.join(repo_path, "config"))
+      expect do
+        described_class.start(["lock", "--config", config_file, "--repository", "test-repo",
+                               "--break", "--force", "--yes"])
+      end.to raise_error(Ruborg::ConfigError, /--break or --force/)
+    end
+
+    context "when repository is locked" do
+      before do
+        FileUtils.mkdir_p(repo_path)
+        FileUtils.touch(File.join(repo_path, "config"))
+        FileUtils.touch(File.join(repo_path, "lock.exclusive"))
+      end
+
+      it "exits 1 with guidance when no --break or --force flag" do
+        expect do
+          expect do
+            described_class.start(["lock", "--config", config_file, "--repository", "test-repo"])
+          end.to output(/--break --yes.*--force --yes/m).to_stderr
+        end.to raise_error(SystemExit)
+      end
+
+      it "exits 1 when --break given without --yes" do
+        expect do
+          expect do
+            described_class.start(["lock", "--config", config_file, "--repository", "test-repo", "--break"])
+          end.to output(/--yes/).to_stderr
+        end.to raise_error(SystemExit)
+      end
+
+      it "exits 1 when --force given without --yes" do
+        expect do
+          expect do
+            described_class.start(["lock", "--config", config_file, "--repository", "test-repo", "--force"])
+          end.to output(/--yes/).to_stderr
+        end.to raise_error(SystemExit)
+      end
+
+      it "force-removes lock files and confirms with --force --yes" do
+        expect do
+          described_class.start(["lock", "--config", config_file, "--repository", "test-repo",
+                                 "--force", "--yes"])
+        end.to output(/Force-removed/).to_stdout
+        expect(File.exist?(File.join(repo_path, "lock.exclusive"))).to be false
+      end
+
+      it "breaks the lock via borg when --break --yes are both given", :borg do
+        FileUtils.rm_rf(repo_path)
+        real_repo = Ruborg::Repository.new(repo_path, passphrase: "test-pass")
+        real_repo.create
+        lock_dir = File.join(repo_path, "lock.exclusive")
+        Dir.mkdir(lock_dir)
+        FileUtils.touch(File.join(lock_dir, "testhost.99999.1"))
+
+        updated_config = config_data.merge("passbolt" => { "resource_id" => "test-id" })
+        File.write(config_file, updated_config.to_yaml)
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return("test-pass")
+        allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+
+        expect do
+          described_class.start(["lock", "--config", config_file, "--repository", "test-repo",
+                                 "--break", "--yes"])
+        end.to output(/Lock broken/).to_stdout
+      end
+    end
+  end
+
+  describe "lock_wait pre-flight check during backup", :borg do
+    before do
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+      FileUtils.mkdir_p(File.join(tmpdir, "backup_source"))
+      File.write(File.join(tmpdir, "backup_source", "test.txt"), "content")
+      updated_config = config_data.merge("passbolt" => { "resource_id" => "test-id" })
+      File.write(config_file, updated_config.to_yaml)
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+    end
+
+    it "proceeds normally when no lock is present" do
+      expect do
+        described_class.start(["backup", "--config", config_file, "--repository", "test-repo"])
+      end.to output(/Verifying repository/).to_stderr
+    end
+
+    it "raises BorgError with guidance when lock does not clear within lock_wait" do
+      # Use lock_wait: 0 so the wait loop exits immediately
+      config_with_zero_wait = config_data.merge(
+        "lock_wait" => 0,
+        "passbolt" => { "resource_id" => "test-id" }
+      )
+      File.write(config_file, config_with_zero_wait.to_yaml)
+
+      lock_dir = File.join(repo_path, "lock.exclusive")
+      Dir.mkdir(lock_dir)
+      FileUtils.touch(File.join(lock_dir, "testhost.99999.1"))
+
+      expect do
+        described_class.start(["backup", "--config", config_file, "--repository", "test-repo"])
+      end.to raise_error(Ruborg::BorgError, /still locked.*ruborg lock/)
+    end
+  end
 end
