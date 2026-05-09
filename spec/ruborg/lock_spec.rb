@@ -58,8 +58,8 @@ RSpec.describe Ruborg::Repository do
     end
 
     it "raises BorgError when borg version is below minimum" do
-      allow(described_class).to receive(:borg_version).and_return("1.1.9")
-      expect { repo.break_lock }.to raise_error(Ruborg::BorgError, /1\.2\.0.*required/)
+      allow(described_class).to receive(:borg_version).and_return("1.3.9")
+      expect { repo.break_lock }.to raise_error(Ruborg::BorgError, /1\.4\.0.*required/)
     end
   end
 
@@ -106,6 +106,26 @@ RSpec.describe Ruborg::Repository do
     it "raises BorgError when the repository does not exist" do
       absent = described_class.new(File.join(tmpdir, "no_such_repo"), passphrase: passphrase)
       expect { absent.force_break_lock }.to raise_error(Ruborg::BorgError, /does not exist/)
+    end
+  end
+
+  describe "lock_wait injection" do
+    it "injects --lock-wait when lock_wait is configured" do
+      repo = described_class.new(repo_path, lock_wait: 42)
+      injected = repo.send(:inject_lock_wait, ["borg", "create", "::archive", "/src"])
+      expect(injected).to eq(["borg", "--lock-wait", "42", "create", "::archive", "/src"])
+    end
+
+    it "does not inject --lock-wait when lock_wait is not configured" do
+      repo = described_class.new(repo_path)
+      cmd = ["borg", "create", "::archive", "/src"]
+      expect(repo.send(:inject_lock_wait, cmd)).to eq(cmd)
+    end
+
+    it "does not inject --lock-wait for break-lock even when configured" do
+      repo = described_class.new(repo_path, lock_wait: 42)
+      cmd = ["borg", "break-lock", "/path/to/repo"]
+      expect(repo.send(:inject_lock_wait, cmd)).to eq(cmd)
     end
   end
 

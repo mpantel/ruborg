@@ -1433,4 +1433,40 @@ RSpec.describe Ruborg::CLI do
       end
     end
   end
+
+  describe "lock_wait pre-flight check during backup", :borg do
+    before do
+      repo = Ruborg::Repository.new(repo_path, passphrase: passphrase)
+      repo.create
+      FileUtils.mkdir_p(File.join(tmpdir, "backup_source"))
+      File.write(File.join(tmpdir, "backup_source", "test.txt"), "content")
+      updated_config = config_data.merge("passbolt" => { "resource_id" => "test-id" })
+      File.write(config_file, updated_config.to_yaml)
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:get_password).and_return(passphrase)
+      allow_any_instance_of(Ruborg::Passbolt).to receive(:system).with("which passbolt > /dev/null 2>&1").and_return(true)
+    end
+
+    it "proceeds normally when no lock is present" do
+      expect do
+        described_class.start(["backup", "--config", config_file, "--repository", "test-repo"])
+      end.to output(/Verifying repository/).to_stderr
+    end
+
+    it "raises BorgError with guidance when lock does not clear within lock_wait" do
+      # Use lock_wait: 0 so the wait loop exits immediately
+      config_with_zero_wait = config_data.merge(
+        "lock_wait" => 0,
+        "passbolt" => { "resource_id" => "test-id" }
+      )
+      File.write(config_file, config_with_zero_wait.to_yaml)
+
+      lock_dir = File.join(repo_path, "lock.exclusive")
+      Dir.mkdir(lock_dir)
+      FileUtils.touch(File.join(lock_dir, "testhost.99999.1"))
+
+      expect do
+        described_class.start(["backup", "--config", config_file, "--repository", "test-repo"])
+      end.to raise_error(Ruborg::BorgError, /still locked.*ruborg lock/)
+    end
+  end
 end

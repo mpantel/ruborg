@@ -6,6 +6,7 @@ require "json"
 module Ruborg
   # Command-line interface for ruborg
   class CLI < Thor
+    DEFAULT_LOCK_WAIT = 300
     class_option :config, type: :string, default: "ruborg.yml", desc: "Path to configuration file"
     class_option :log, type: :string, desc: "Path to log file"
     class_option :repository, type: :string, aliases: "-r", desc: "Repository name (for multi-repo configs)"
@@ -75,11 +76,7 @@ module Ruborg
       merged_config = global_settings.merge(repo_config)
       validate_hostname(merged_config)
       passphrase = fetch_passphrase_for_repo(merged_config)
-      borg_opts = merged_config["borg_options"] || {}
-      borg_path = merged_config["borg_path"]
-
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
-                                                 logger: @logger)
+      repo = build_repo(repo_config["path"], merged_config, passphrase)
 
       # Auto-initialize repository if configured
       # Use strict boolean checking: only true enables, everything else disables
@@ -122,11 +119,7 @@ module Ruborg
       merged_config = global_settings.merge(repo_config)
       validate_hostname(merged_config)
       passphrase = fetch_passphrase_for_repo(merged_config)
-      borg_opts = merged_config["borg_options"] || {}
-      borg_path = merged_config["borg_path"]
-
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
-                                                 logger: @logger)
+      repo = build_repo(repo_config["path"], merged_config, passphrase)
 
       # Create backup config wrapper for compatibility
       backup_config = BackupConfig.new(repo_config, merged_config)
@@ -162,11 +155,7 @@ module Ruborg
       global_settings = config.global_settings
       merged_config = global_settings.merge(repo_config)
       passphrase = fetch_passphrase_for_repo(merged_config)
-      borg_opts = merged_config["borg_options"] || {}
-      borg_path = merged_config["borg_path"]
-
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
-                                                 logger: @logger)
+      repo = build_repo(repo_config["path"], merged_config, passphrase)
 
       # Auto-initialize repository if configured
       # Use strict boolean checking: only true enables, everything else disables
@@ -312,11 +301,7 @@ module Ruborg
       merged_config = global_settings.merge(repo_config)
       validate_hostname(merged_config)
       passphrase = fetch_passphrase_for_repo(merged_config)
-      borg_opts = merged_config["borg_options"] || {}
-      borg_path = merged_config["borg_path"]
-
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
-                                                 logger: @logger)
+      repo = build_repo(repo_config["path"], merged_config, passphrase)
 
       unless repo.exists?
         puts "  ✗ Repository does not exist at #{repo_config["path"]}"
@@ -408,11 +393,7 @@ module Ruborg
       global_settings = config.global_settings
       merged_config = global_settings.merge(repo_config)
       passphrase = fetch_passphrase_for_repo(merged_config)
-      borg_opts = merged_config["borg_options"] || {}
-      borg_path = merged_config["borg_path"]
-
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts,
-                                                 borg_path: borg_path, logger: @logger)
+      repo = build_repo(repo_config["path"], merged_config, passphrase)
 
       unless repo.locked?
         puts "No lock found for repository '#{repo_config["name"]}'"
@@ -497,11 +478,7 @@ module Ruborg
       merged_config = global_settings.merge(repo_config)
       validate_hostname(merged_config)
       passphrase = fetch_passphrase_for_repo(merged_config)
-      borg_opts = merged_config["borg_options"] || {}
-      borg_path = merged_config["borg_path"]
-
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
-                                                 logger: @logger)
+      repo = build_repo(repo_config["path"], merged_config, passphrase)
 
       raise BorgError, "Repository does not exist at #{repo_config["path"]}" unless repo.exists?
 
@@ -733,10 +710,8 @@ module Ruborg
       progress.stage(1, stage_total, "Verifying repository: #{repo_name}")
 
       passphrase = fetch_passphrase_for_repo(merged_config)
-      borg_opts = merged_config["borg_options"] || {}
-      borg_path = merged_config["borg_path"]
-      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts, borg_path: borg_path,
-                                                 logger: @logger)
+      lock_wait = (merged_config["lock_wait"] || DEFAULT_LOCK_WAIT).to_i
+      repo = build_repo(repo_config["path"], merged_config, passphrase)
 
       auto_init = merged_config["auto_init"] == true
       if auto_init && !repo.exists?
@@ -744,6 +719,8 @@ module Ruborg
         repo.create
         puts "Repository auto-initialized at #{repo_config["path"]}"
       end
+
+      wait_for_lock_clear(repo, repo_name, lock_wait, progress)
 
       if options[:remove_source]
         allow_remove_source = merged_config["allow_remove_source"]
@@ -784,6 +761,44 @@ module Ruborg
       repo.prune(retention_policy, retention_mode: retention_mode)
       @logger.info("Pruning completed successfully for #{repo_name}")
       progress.done("Pruning completed")
+    end
+
+    def wait_for_lock_clear(repo, repo_name, lock_wait, progress)
+      return unless repo.locked?
+
+      @logger.warn("Repository '#{repo_name}' is locked — waiting up to #{lock_wait}s")
+      elapsed = 0
+      interval = 5
+
+      progress.spin("Repository locked — waiting for lock to clear (0s / #{lock_wait}s)…")
+
+      while repo.locked? && elapsed < lock_wait
+        sleep interval
+        elapsed += interval
+        progress.spin("Repository locked — waiting for lock to clear (#{elapsed}s / #{lock_wait}s)…")
+      end
+
+      progress.stop_spin
+
+      if repo.locked?
+        raise BorgError,
+              "Repository '#{repo_name}' is still locked after #{lock_wait}s. " \
+              "Run 'ruborg lock --repository #{repo_name}' to inspect, or " \
+              "'ruborg lock --repository #{repo_name} --break --yes' to clear."
+      end
+
+      @logger.info("Lock cleared for '#{repo_name}' after #{elapsed}s")
+    end
+
+    def build_repo(repo_path, merged_config, passphrase)
+      Repository.new(
+        repo_path,
+        passphrase: passphrase,
+        borg_options: merged_config["borg_options"] || {},
+        borg_path: merged_config["borg_path"],
+        lock_wait: merged_config["lock_wait"]&.to_i,
+        logger: @logger
+      )
     end
 
     def fetch_passphrase_for_repo(repo_config)

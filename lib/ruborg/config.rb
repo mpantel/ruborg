@@ -41,7 +41,7 @@ module Ruborg
 
     def global_settings
       @data.slice("passbolt", "compression", "encryption", "auto_init", "borg_options", "log_file", "retention",
-                  "auto_prune", "hostname", "allow_remove_source", "borg_path", "skip_hash_check")
+                  "auto_prune", "hostname", "allow_remove_source", "borg_path", "skip_hash_check", "lock_wait")
     end
 
     private
@@ -54,12 +54,12 @@ module Ruborg
     # Valid configuration keys at each level
     VALID_GLOBAL_KEYS = %w[
       hostname compression encryption auto_init auto_prune allow_remove_source
-      log_file borg_path passbolt borg_options retention repositories skip_hash_check
+      log_file borg_path passbolt borg_options retention repositories skip_hash_check lock_wait
     ].freeze
 
     VALID_REPOSITORY_KEYS = %w[
       name description path hostname retention_mode passbolt retention sources
-      compression encryption auto_init auto_prune borg_options allow_remove_source skip_hash_check
+      compression encryption auto_init auto_prune borg_options allow_remove_source skip_hash_check lock_wait
     ].freeze
 
     VALID_SOURCE_KEYS = %w[name paths exclude].freeze
