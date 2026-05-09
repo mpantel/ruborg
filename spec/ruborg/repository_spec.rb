@@ -592,6 +592,81 @@ RSpec.describe Ruborg::Repository do
     end
   end
 
+  describe "#cache_locked?" do
+    let(:repo) { described_class.new(repo_path, passphrase: passphrase) }
+
+    before do
+      FileUtils.mkdir_p(repo_path)
+      # Write a minimal borg config with a known repo id
+      File.write(File.join(repo_path, "config"), "[repository]\nid = abcdef1234567890\n")
+    end
+
+    it "returns false when no cache lock exists" do
+      expect(repo.cache_locked?).to be false
+    end
+
+    it "returns true when the cache lock.exclusive exists" do
+      cache_dir = File.join(Dir.home, ".cache", "borg", "abcdef1234567890")
+      FileUtils.mkdir_p(cache_dir)
+      FileUtils.touch(File.join(cache_dir, "lock.exclusive"))
+      expect(repo.cache_locked?).to be true
+    ensure
+      FileUtils.rm_f(File.join(cache_dir, "lock.exclusive"))
+    end
+
+    it "respects BORG_CACHE_DIR environment variable" do
+      custom_cache = File.join(tmpdir, "custom_borg_cache")
+      cache_dir = File.join(custom_cache, "abcdef1234567890")
+      FileUtils.mkdir_p(cache_dir)
+      FileUtils.touch(File.join(cache_dir, "lock.exclusive"))
+
+      old_val = ENV.delete("BORG_CACHE_DIR")
+      ENV["BORG_CACHE_DIR"] = custom_cache
+      expect(repo.cache_locked?).to be true
+    ensure
+      ENV["BORG_CACHE_DIR"] = old_val
+    end
+
+    it "returns false when repo config has no id" do
+      File.write(File.join(repo_path, "config"), "[repository]\n")
+      expect(repo.cache_locked?).to be false
+    end
+  end
+
+  describe "#force_break_lock with cache lock" do
+    let(:repo) { described_class.new(repo_path, passphrase: passphrase) }
+    let(:repo_id) { "deadbeef99887766" }
+    let(:cache_dir) { File.join(tmpdir, "borg_cache", repo_id) }
+    let(:cache_lock) { File.join(cache_dir, "lock.exclusive") }
+
+    before do
+      FileUtils.mkdir_p(repo_path)
+      File.write(File.join(repo_path, "config"), "[repository]\nid = #{repo_id}\n")
+      FileUtils.mkdir_p(cache_dir)
+      FileUtils.touch(cache_lock)
+      FileUtils.touch(File.join(repo_path, "lock.exclusive"))
+    end
+
+    it "removes the cache lock and includes it in the returned list" do
+      old_val = ENV.delete("BORG_CACHE_DIR")
+      ENV["BORG_CACHE_DIR"] = File.join(tmpdir, "borg_cache")
+      removed = repo.force_break_lock
+      expect(removed).to include("cache:lock.exclusive")
+      expect(File.exist?(cache_lock)).to be false
+    ensure
+      ENV["BORG_CACHE_DIR"] = old_val
+    end
+
+    it "also removes the repo lock file" do
+      old_val = ENV.delete("BORG_CACHE_DIR")
+      ENV["BORG_CACHE_DIR"] = File.join(tmpdir, "borg_cache")
+      repo.force_break_lock
+      expect(File.exist?(File.join(repo_path, "lock.exclusive"))).to be false
+    ensure
+      ENV["BORG_CACHE_DIR"] = old_val
+    end
+  end
+
   describe "#parse_archive_comment (private)" do
     let(:repo) { described_class.new(repo_path, passphrase: passphrase) }
 

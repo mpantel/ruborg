@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`ruborg lock` now detects Borg cache locks** — previously, a stale cache lock (`~/.cache/borg/<id>/lock.exclusive`) was invisible to `ruborg lock`, which only checked repository-level lock files. The command now reports both the repository lock and the cache lock state independently, so a cache-only stale lock no longer produces a misleading "No lock found" result.
+  - `Repository#cache_locked?` — pure filesystem check on the cache lock; reads the repo ID from `<repo>/config` without invoking Borg or requiring a passphrase
+  - `Repository#force_break_lock` — now also removes the cache lock and includes `"cache:lock.exclusive"` in its returned list when removed
+  - `borg break-lock` (used by `--break`) already handles both locks atomically — no change needed there
+  - Respects `BORG_CACHE_DIR` when set
+  - Fixes [#10](https://github.com/mpantel/ruborg/issues/10)
+
 ## [0.9.3] - 2026-05-09
 
 ### Added

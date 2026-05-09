@@ -1431,6 +1431,64 @@ RSpec.describe Ruborg::CLI do
                                  "--break", "--yes"])
         end.to output(/Lock broken/).to_stdout
       end
+
+      it "reports repo lock as LOCKED and cache lock as clear" do
+        expect do
+          expect do
+            described_class.start(["lock", "--config", config_file, "--repository", "test-repo"])
+          end.to output(/Repository lock.*LOCKED/m).to_stderr
+        end.to raise_error(SystemExit)
+      end
+
+      it "reports cache lock as clear when only repo is locked" do
+        expect do
+          expect do
+            described_class.start(["lock", "--config", config_file, "--repository", "test-repo"])
+          end.to output(/Cache lock.*clear/m).to_stderr
+        end.to raise_error(SystemExit)
+      end
+    end
+
+    context "when only the cache lock is present" do
+      let(:repo_id) { "cafebabe00112233" }
+      let(:cache_dir) { File.join(tmpdir, "borg_cache_only", repo_id) }
+
+      around do |example|
+        old_val = ENV.delete("BORG_CACHE_DIR")
+        ENV["BORG_CACHE_DIR"] = File.join(tmpdir, "borg_cache_only")
+        example.run
+      ensure
+        ENV["BORG_CACHE_DIR"] = old_val
+      end
+
+      before do
+        FileUtils.mkdir_p(repo_path)
+        File.write(File.join(repo_path, "config"), "[repository]\nid = #{repo_id}\n")
+        FileUtils.mkdir_p(cache_dir)
+        FileUtils.touch(File.join(cache_dir, "lock.exclusive"))
+      end
+
+      it "detects the lock and reports cache as LOCKED, repo as clear" do
+        expect do
+          expect do
+            described_class.start(["lock", "--config", config_file, "--repository", "test-repo"])
+          end.to output(/Cache lock.*LOCKED/m).to_stderr
+        end.to raise_error(SystemExit)
+      end
+
+      it "reports repo lock as clear when only cache is locked" do
+        expect do
+          expect do
+            described_class.start(["lock", "--config", config_file, "--repository", "test-repo"])
+          end.to output(/Repository lock.*clear/m).to_stderr
+        end.to raise_error(SystemExit)
+      end
+
+      it "removes cache lock with --force --yes" do
+        described_class.start(["lock", "--config", config_file, "--repository", "test-repo",
+                               "--force", "--yes"])
+        expect(File.exist?(File.join(cache_dir, "lock.exclusive"))).to be false
+      end
     end
   end
 
