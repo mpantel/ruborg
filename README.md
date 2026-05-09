@@ -479,11 +479,20 @@ Type: regular file
 
 Borg uses lock files to prevent concurrent access. If a backup crashes, stale locks can block all subsequent operations. Use `ruborg lock` to inspect and clear them.
 
+Borg maintains **two independent locks** — one on the repository itself and one on the local cache (`~/.cache/borg/<id>/lock.exclusive`). `ruborg lock` checks and reports both:
+
+```
+Lock detected on repository 'documents' (/mnt/backups/documents):
+  Repository lock : clear
+  Cache lock      : LOCKED
+  Run with --break --yes (via borg) or --force --yes (direct removal).
+```
+
 ```bash
-# Check if a repository is locked (exits 0 = no lock, 1 = locked)
+# Check both repository and cache locks (exits 0 = no lock, 1 = locked)
 ruborg lock --repository documents
 
-# Break the lock via borg break-lock (requires Borg >= 1.4.0)
+# Break both locks via borg break-lock (requires Borg >= 1.4.0)
 ruborg lock --repository documents --break --yes
 
 # Force-remove lock files directly (no Borg required, last resort)

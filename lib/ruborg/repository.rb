@@ -27,6 +27,10 @@ module Ruborg
         File.exist?(File.join(@path, "lock.roster"))
     end
 
+    def cache_locked?
+      File.exist?(cache_lock_path)
+    end
+
     def break_lock
       raise BorgError, "Repository does not exist at #{@path}" unless exists?
 
@@ -47,6 +51,13 @@ module Ruborg
         FileUtils.rm_rf(target)
         true
       end
+
+      cache_lock = cache_lock_path
+      if File.exist?(cache_lock)
+        FileUtils.rm_f(cache_lock)
+        removed << "cache:lock.exclusive"
+      end
+
       @logger&.info("Force-removed lock files at #{@path}: #{removed.join(", ")}")
       removed
     end
@@ -643,6 +654,19 @@ module Ruborg
       actual_parts  = actual.split(".").map(&:to_i)
       minimum_parts = minimum.split(".").map(&:to_i)
       (actual_parts <=> minimum_parts) >= 0
+    end
+
+    def cache_lock_path
+      cache_dir = ENV.fetch("BORG_CACHE_DIR", File.join(Dir.home, ".cache", "borg"))
+      repo_id = read_repo_id
+      File.join(cache_dir, repo_id, "lock.exclusive")
+    end
+
+    def read_repo_id
+      config_file = File.join(@path, "config")
+      return "" unless File.exist?(config_file)
+
+      File.read(config_file).match(/^\s*id\s*=\s*([0-9a-f]+)/)&.captures&.first || ""
     end
 
     def find_in_path(command)

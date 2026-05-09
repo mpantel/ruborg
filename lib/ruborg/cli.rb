@@ -395,14 +395,19 @@ module Ruborg
       passphrase = fetch_passphrase_for_repo(merged_config)
       repo = build_repo(repo_config["path"], merged_config, passphrase)
 
-      unless repo.locked?
+      repo_locked   = repo.locked?
+      cache_locked  = repo.cache_locked?
+
+      unless repo_locked || cache_locked
         puts "No lock found for repository '#{repo_config["name"]}'"
         @logger.info("Lock check: no lock found for '#{repo_config["name"]}'")
         return
       end
 
-      warn "Lock detected on repository '#{repo_config["name"]}' (#{repo_config["path"]})"
-      @logger.warn("Lock detected on repository '#{repo_config["name"]}'")
+      warn "Lock detected on repository '#{repo_config["name"]}' (#{repo_config["path"]}):"
+      warn "  Repository lock : #{repo_locked  ? "LOCKED" : "clear"}"
+      warn "  Cache lock      : #{cache_locked ? "LOCKED" : "clear"}"
+      @logger.warn("Lock detected on '#{repo_config["name"]}' — repo=#{repo_locked}, cache=#{cache_locked}")
 
       unless options[:break] || options[:force]
         warn "  Run with --break --yes (via borg) or --force --yes (direct removal)."
