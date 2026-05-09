@@ -3,6 +3,8 @@
 require_relative "ruborg/version"
 require_relative "ruborg/logger"
 require_relative "ruborg/config"
+require_relative "ruborg/archive_cache"
+require_relative "ruborg/catalog"
 require_relative "ruborg/repository"
 require_relative "ruborg/backup"
 require_relative "ruborg/passbolt"
@@ -13,4 +15,5 @@ module Ruborg
   class ConfigError < Error; end
   class BorgError < Error; end
   class PassboltError < Error; end
+  class CatalogError < Error; end
 end

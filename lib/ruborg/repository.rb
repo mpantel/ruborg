@@ -7,6 +7,7 @@ module Ruborg
     attr_reader :path, :borg_path
 
     def initialize(path, passphrase: nil, borg_options: {}, borg_path: nil, logger: nil)
+      @original_path = path
       @path = validate_repo_path(path)
       @passphrase = passphrase
       @borg_options = borg_options
@@ -278,61 +279,66 @@ module Ruborg
       nil # Failed to parse, skip this archive
     end
 
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     def get_archives_grouped_by_source_dir
       require "json"
       require "time"
       require "open3"
 
-      # Get list of all archives
       cmd = [@borg_path, "list", @path, "--json"]
       env = build_borg_env
 
       stdout, stderr, status = Open3.capture3(env, *cmd)
       raise BorgError, "Failed to list archives: #{stderr}" unless status.success?
 
-      json_data = JSON.parse(stdout)
-      archives = json_data["archives"] || []
-
-      # Group archives by source directory from metadata
+      archives = JSON.parse(stdout)["archives"] || []
+      cache = ArchiveCache.new(@original_path).fetch
       archives_by_source = Hash.new { |h, k| h[k] = [] }
 
       archives.each do |archive|
         archive_name = archive["name"]
+        archive_time = Time.parse(archive["time"])
 
-        # Get archive info to read comment (metadata)
-        info_cmd = [@borg_path, "info", "#{@path}::#{archive_name}", "--json"]
-        info_stdout, _, info_status = Open3.capture3(env, *info_cmd)
+        metadata = if (cached = cache[archive_name])
+                     cached
+                   else
+                     info_cmd = [@borg_path, "info", "#{@path}::#{archive_name}", "--json"]
+                     info_stdout, _, info_status = Open3.capture3(env, *info_cmd)
 
-        unless info_status.success?
-          # If we can't get info, put in legacy group
-          archives_by_source[""] << {
-            name: archive_name,
-            time: Time.parse(archive["time"])
-          }
-          next
-        end
-
-        info_data = JSON.parse(info_stdout)
-        comment = info_data.dig("archives", 0, "comment") || ""
-
-        # Parse source_dir from comment
-        # Format: path|||size|||hash|||source_dir
-        source_dir = if comment.include?("|||")
-                       parts = comment.split("|||")
-                       parts.length >= 4 ? (parts[3] || "") : ""
+                     if info_status.success?
+                       comment = JSON.parse(info_stdout).dig("archives", 0, "comment") || ""
+                       parsed = parse_archive_comment(comment)
+                       cache.store(archive_name, parsed)
+                       parsed
                      else
-                       ""
+                       cache.store(archive_name, { path: "", size: 0, hash: "", source_dir: "" })
+                       { path: "", size: 0, hash: "", source_dir: "" }
                      end
+                   end
 
-        archives_by_source[source_dir] << {
-          name: archive_name,
-          time: Time.parse(archive["time"])
-        }
+        archives_by_source[metadata[:source_dir] || ""] << { name: archive_name, time: archive_time }
       end
 
+      cache.save_if_changed
       archives_by_source
     rescue JSON::ParserError => e
       raise BorgError, "Failed to parse archive metadata: #{e.message}"
+    end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
+
+    def parse_archive_comment(comment)
+      if comment.include?("|||")
+        parts = comment.split("|||")
+        if parts.length >= 4
+          { path: parts[0], size: parts[1].to_i, hash: parts[2] || "", source_dir: parts[3] || "" }
+        elsif parts.length >= 3
+          { path: parts[0], size: parts[1].to_i, hash: parts[2] || "", source_dir: "" }
+        else
+          { path: parts[0], size: 0, hash: parts[1] || "", source_dir: "" }
+        end
+      else
+        { path: comment, size: 0, hash: "", source_dir: "" }
+      end
     end
 
     def prune_per_directory_standard(retention_policy)

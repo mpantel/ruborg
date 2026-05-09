@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-09
+
+### Added
+- **Archive metadata cache**: New `ArchiveCache` class eliminates N+1 `borg info` calls during per-file backup runs
+  - Metadata cached in `<repo_path>.ruborg_cache.json` — sibling file to the repository
+  - Cache is shared across machines: any host with access to the repo path shares the same cache
+  - Local repos use `File::LOCK_EX` for safe concurrent reads/writes with merge-on-conflict
+  - SSH repos (`user@host:/path`, `ssh://user@host/path`) fetch/push the cache via `scp` with optimistic locking (fetch-fresh → merge → push), avoiding deadlocks on process crashes
+  - Only archives not yet in cache trigger a `borg info` call; warm runs reduce subprocess overhead from O(n) to O(new archives)
+  - Fixes [#4](https://github.com/mpantel/ruborg/issues/4)
+- **Catalog command**: New `ruborg catalog` command for fast, offline browsing of backed-up files
+  - Reads the local cache file — no `borg` subprocess calls needed
+  - `--search PATTERN` — filter entries by file path using a regex
+  - `--stats` — show aggregate statistics (total archives, unique files, total size, source dirs)
+  - `--json` — machine-readable JSON output; default is a human-friendly text table
+  - Works per-repository like all other commands (`--repository`)
+  - Supports SSH repos transparently via the same `scp`-based cache fetch
+- **Bug fix**: `ArchiveCache` now normalises all loaded metadata to symbol keys, ensuring cache hits and cache misses return identical key types
+
 ## [0.9.0] - 2025-10-14
 
 ### Changed

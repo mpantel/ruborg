@@ -591,4 +591,33 @@ RSpec.describe Ruborg::Repository do
       end.to raise_error(Ruborg::BorgError, /not found in archive/)
     end
   end
+
+  describe "#parse_archive_comment (private)" do
+    let(:repo) { described_class.new(repo_path, passphrase: passphrase) }
+
+    it "parses new format: path|||size|||hash|||source_dir" do
+      result = repo.send(:parse_archive_comment, "/srv/files/doc.pdf|||4096|||feedface|||/srv/files")
+      expect(result).to eq(path: "/srv/files/doc.pdf", size: 4096, hash: "feedface", source_dir: "/srv/files")
+    end
+
+    it "parses format 3: path|||size|||hash (no source_dir)" do
+      result = repo.send(:parse_archive_comment, "/srv/files/doc.pdf|||2048|||cafebabe")
+      expect(result).to eq(path: "/srv/files/doc.pdf", size: 2048, hash: "cafebabe", source_dir: "")
+    end
+
+    it "parses old format: path|||hash (no size or source_dir)" do
+      result = repo.send(:parse_archive_comment, "/srv/files/doc.pdf|||badhash")
+      expect(result).to eq(path: "/srv/files/doc.pdf", size: 0, hash: "badhash", source_dir: "")
+    end
+
+    it "parses oldest format: plain path string" do
+      result = repo.send(:parse_archive_comment, "/srv/files/doc.pdf")
+      expect(result).to eq(path: "/srv/files/doc.pdf", size: 0, hash: "", source_dir: "")
+    end
+
+    it "handles empty comment" do
+      result = repo.send(:parse_archive_comment, "")
+      expect(result).to eq(path: "", size: 0, hash: "", source_dir: "")
+    end
+  end
 end
