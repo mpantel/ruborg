@@ -19,6 +19,19 @@ module Ruborg
       File.directory?(@path) && File.exist?(File.join(@path, "config"))
     end
 
+    def locked?
+      File.exist?(File.join(@path, "lock.exclusive")) ||
+        File.exist?(File.join(@path, "lock.roster"))
+    end
+
+    def break_lock
+      raise BorgError, "Repository does not exist at #{@path}" unless exists?
+
+      cmd = [@borg_path, "break-lock", @path]
+      execute_borg_command(cmd)
+      @logger&.info("Lock broken for repository at #{@path}")
+    end
+
     def create
       raise BorgError, "Repository already exists at #{@path}" if exists?
 

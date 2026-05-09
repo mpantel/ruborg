@@ -390,6 +390,53 @@ module Ruborg
       raise
     end
 
+    desc "lock", "Check for and optionally break a Borg repository lock"
+    option :break, type: :boolean, default: false, desc: "Break the lock (requires --yes)"
+    option :yes,   type: :boolean, default: false, desc: "Confirm the destructive break operation"
+    def lock
+      config = Config.new(options[:config])
+
+      raise ConfigError, "Please specify --repository" unless options[:repository]
+
+      repo_config = config.get_repository(options[:repository])
+      raise ConfigError, "Repository '#{options[:repository]}' not found" unless repo_config
+
+      global_settings = config.global_settings
+      merged_config = global_settings.merge(repo_config)
+      passphrase = fetch_passphrase_for_repo(merged_config)
+      borg_opts = merged_config["borg_options"] || {}
+      borg_path = merged_config["borg_path"]
+
+      repo = Repository.new(repo_config["path"], passphrase: passphrase, borg_options: borg_opts,
+                                                 borg_path: borg_path, logger: @logger)
+
+      unless repo.locked?
+        puts "No lock found for repository '#{repo_config["name"]}'"
+        @logger.info("Lock check: no lock found for '#{repo_config["name"]}'")
+        return
+      end
+
+      warn "Lock detected on repository '#{repo_config["name"]}' (#{repo_config["path"]})"
+      @logger.warn("Lock detected on repository '#{repo_config["name"]}'")
+
+      unless options[:break]
+        warn "  Run with --break --yes to remove the lock."
+        exit 1
+      end
+
+      unless options[:yes]
+        warn "  Add --yes to confirm breaking the lock."
+        exit 1
+      end
+
+      repo.break_lock
+      puts "Lock broken for repository '#{repo_config["name"]}'"
+      @logger.info("Lock broken for repository '#{repo_config["name"]}'")
+    rescue Error => e
+      @logger.error("Lock command failed: #{e.message}")
+      raise
+    end
+
     desc "version", "Show ruborg and borg versions"
     def version
       require_relative "version"
@@ -658,7 +705,6 @@ module Ruborg
       end
     end
 
-    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     def backup_repository(repo_config, global_settings)
       repo_name = repo_config["name"]
       puts "\n--- Backing up repository: #{repo_name} ---"
@@ -729,7 +775,6 @@ module Ruborg
       @logger.info("Pruning completed successfully for #{repo_name}")
       progress.done("Pruning completed")
     end
-    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
 
     def fetch_passphrase_for_repo(repo_config)
       passbolt_config = repo_config["passbolt"]

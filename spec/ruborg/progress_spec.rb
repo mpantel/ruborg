@@ -4,9 +4,9 @@ require "spec_helper"
 require "stringio"
 
 RSpec.describe Ruborg::Progress do
-  let(:output) { StringIO.new }
   subject(:progress) { described_class.new(output: output) }
 
+  let(:output) { StringIO.new }
   # StringIO is never a real TTY; force TTY mode so we can test ANSI behaviour
   let(:tty_progress) do
     allow(output).to receive(:isatty).and_return(true)
@@ -21,7 +21,7 @@ RSpec.describe Ruborg::Progress do
 
     it "includes all three components: index, total, label" do
       progress.stage(2, 4, "Backing up files")
-      expect(output.string).to match(/\[2\/4\].*Backing up files/)
+      expect(output.string).to match(%r{\[2/4\].*Backing up files})
     end
 
     it "stops any active spinner before printing" do
@@ -87,7 +87,7 @@ RSpec.describe Ruborg::Progress do
         long_label = "a" * 100
         tty_progress.bar(1, 5, long_label)
         # Output line should not be excessively wide
-        line = output.string.gsub(/\r/, "")
+        line = output.string.gsub("\r", "")
         expect(line.length).to be < 120
       end
     end

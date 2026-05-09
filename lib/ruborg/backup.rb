@@ -3,7 +3,8 @@
 module Ruborg
   # Backup operations using Borg
   class Backup
-    def initialize(repository, config:, retention_mode: "standard", repo_name: nil, logger: nil, skip_hash_check: false, progress: nil)
+    def initialize(repository, config:, retention_mode: "standard", repo_name: nil, logger: nil,
+                   skip_hash_check: false, progress: nil)
       @repository = repository
       @config = config
       @retention_mode = retention_mode

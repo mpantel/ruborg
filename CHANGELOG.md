@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-05-09
+
+### Added
+- **`ruborg lock` command**: Check for and optionally break stale Borg repository locks
+  - `ruborg lock --repository NAME` — exits 0 if no lock, exits 1 if lock detected
+  - `ruborg lock --repository NAME --break --yes` — breaks the lock via `borg break-lock`
+  - `--break` without `--yes` is a no-op guard (exits 1 with guidance), preventing accidental lock removal
+  - `Repository#locked?` — pure filesystem check on `lock.exclusive` / `lock.roster`, no Borg invocation or passphrase required
+  - `Repository#break_lock` — delegates to `borg break-lock` via the existing `execute_borg_command` helper
+  - Status output (lock present/absent) goes to stdout for scriptability; warning messages go to `$stderr`
+  - Fixes [#8](https://github.com/mpantel/ruborg/issues/8)
+
 ## [0.9.2] - 2026-05-09
 
 ### Added
