@@ -19,8 +19,8 @@ A friendly Ruby frontend for [Borg Backup](https://www.borgbackup.org/). Ruborg 
 - 🔄 **Auto-initialization** - Automatically initialize repositories on first use
 - ⏰ **Retention Policies** - Configure backup retention (hourly, daily, weekly, monthly, yearly)
 - 🗑️ **Automatic Pruning** - Automatically remove old backups based on retention policies
-- 📁 **Per-File Backup Mode** - NEW! Backup each file as a separate archive with metadata-based retention
-- 🕒 **File Metadata Retention** - NEW! Prune based on file modification time, works even after files are deleted
+- 📁 **Per-File Backup Mode** - Backup each file as a separate archive with metadata-based retention _(special use cases only — see [Per-File Backup Guide](./PERFILE_BACKUP_GUIDE.md))_
+- 🕒 **File Metadata Retention** - Prune based on file modification time, works even after files are deleted
 - 📋 **Repository Descriptions** - Document each repository's purpose
 - 📈 **Summary View** - Quick overview of all repositories and their configurations
 - 🔧 **Custom Borg Path** - Support for custom Borg executable paths per repository
@@ -797,6 +797,8 @@ This configuration provides:
 
 **NEW:** Ruborg supports a per-file backup mode where each file is backed up as a separate archive. This enables intelligent retention based on **file modification time** rather than backup creation time.
 
+> **⚠️ Important — Borg Archive Limits:** Per-file mode is designed for **special use cases with a limited number of files**. Borg is optimised for a normal number of archives (10 – 10,000). Performance degrades significantly when archive counts grow into the tens or hundreds of thousands. Per-file mode is **not** suitable for large directory trees or high-frequency backups of many files. See the [Per-File Backup Guide](./PERFILE_BACKUP_GUIDE.md) for safe usage thresholds, archive count estimation, and when to use standard mode instead.
+
 **Per-Directory Retention (v0.8+):** Retention policies are now applied **independently per source directory**. Each `paths` entry gets its own retention quota, preventing one active directory from dominating retention across all sources.
 
 **Use Case:** Keep backups of actively modified files while automatically pruning backups of files that haven't been modified recently - even after the source files are deleted.
@@ -864,7 +866,7 @@ repositories:
           - /home/user/dev
 ```
 
-**Performance Note:** Per-file mode creates many archives (one per file). Borg handles this efficiently due to deduplication, but it's best suited for directories with hundreds to thousands of files rather than millions.
+**Archive Count Warning:** Per-file mode creates one Borg archive per file per backup run. Borg's deduplication handles large *data volumes* well, but Borg's archive index becomes slow when the total *archive count* grows too high. Per-file mode is only appropriate for a limited number of files per repository (recommended: under 1,000 files, resulting in well under 10,000 total archives after retention). For larger directory trees, use standard backup mode. See the [Per-File Backup Guide](./PERFILE_BACKUP_GUIDE.md) for safe-zone thresholds and configuration examples.
 
 **Progress feedback:** During backup, ruborg shows real-time progress on stderr:
 - All spinner stages display an elapsed-time counter after 3 seconds (`Preparing... (12s)`) so long-running steps are always visible
