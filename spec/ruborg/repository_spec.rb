@@ -305,6 +305,55 @@ RSpec.describe Ruborg::Repository do
     end
   end
 
+  describe "#repair", :borg do
+    it "raises error if repository does not exist" do
+      repo = described_class.new(repo_path)
+
+      expect do
+        repo.repair
+      end.to raise_error(Ruborg::BorgError, /does not exist/)
+    end
+
+    it "runs borg check --repair piping YES to stdin and returns output" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      fake_status = instance_double(Process::Status, success?: true)
+      expect(Open3).to receive(:capture3).with(
+        hash_including("BORG_PASSPHRASE" => passphrase),
+        "borg", "check", "--repair", repo_path,
+        stdin_data: "YES\n"
+      ).and_return(["Repair output", "", fake_status])
+
+      output = repo.repair
+      expect(output).to eq("Repair output")
+    end
+
+    it "raises BorgError when borg check --repair fails" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      fake_status = instance_double(Process::Status, success?: false)
+      allow(Open3).to receive(:capture3).and_return(["", "segment error", fake_status])
+
+      expect do
+        repo.repair
+      end.to raise_error(Ruborg::BorgError, /repair failed/)
+    end
+
+    it "combines stdout and stderr in the returned output" do
+      repo = described_class.new(repo_path, passphrase: passphrase)
+      repo.create
+
+      fake_status = instance_double(Process::Status, success?: true)
+      allow(Open3).to receive(:capture3).and_return(["stdout line", "stderr line", fake_status])
+
+      output = repo.repair
+      expect(output).to include("stdout line")
+      expect(output).to include("stderr line")
+    end
+  end
+
   describe "#check_compatibility", :borg do
     it "raises error if repository does not exist" do
       repo = described_class.new(repo_path)

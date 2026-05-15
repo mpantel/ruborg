@@ -514,6 +514,20 @@ module Ruborg
       execute_borg_command(cmd)
     end
 
+    def repair
+      raise BorgError, "Repository does not exist at #{@path}" unless exists?
+
+      cmd = inject_lock_wait([@borg_path, "check", "--repair", @path])
+      env = build_borg_env
+
+      stdout, stderr, status = Open3.capture3(env, *cmd, stdin_data: "YES\n")
+      output = [stdout, stderr].map(&:strip).reject(&:empty?).join("\n")
+
+      raise BorgError, "Borg repair failed:\n#{output}" unless status.success?
+
+      output
+    end
+
     # Get Borg version
     def self.borg_version(borg_path = "borg")
       output, status = execute_version_command(borg_path)

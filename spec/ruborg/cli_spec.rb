@@ -1333,6 +1333,68 @@ RSpec.describe Ruborg::CLI do
     end
   end
 
+  describe "validate repo --repair", :borg do
+    let(:repair_config) do
+      {
+        "repositories" => [
+          {
+            "name" => "test-repo",
+            "path" => repo_path,
+            "sources" => [{ "name" => "main", "paths" => ["/tmp/test"] }]
+          }
+        ]
+      }
+    end
+
+    before do
+      allow_any_instance_of(Ruborg::RuborgLogger).to receive(:info)
+      allow_any_instance_of(Ruborg::RuborgLogger).to receive(:warn)
+      allow_any_instance_of(Ruborg::RuborgLogger).to receive(:error)
+      allow(Ruborg::Repository).to receive(:borg_version).and_return("1.2.8")
+    end
+
+    it "raises ConfigError when --repair is given without --yes" do
+      config_file = create_test_config(repair_config)
+      FileUtils.mkdir_p(repo_path)
+      repo = Ruborg::Repository.new(repo_path)
+      repo.create
+
+      expect do
+        described_class.start(["validate", "repo", "--config", config_file,
+                               "--repository", "test-repo", "--repair"])
+      end.to raise_error(Ruborg::ConfigError, /--yes/)
+    end
+
+    it "calls repo.repair and logs output when --repair --yes are given" do
+      config_file = create_test_config(repair_config)
+      FileUtils.mkdir_p(repo_path)
+      repo_instance = Ruborg::Repository.new(repo_path)
+      repo_instance.create
+
+      allow_any_instance_of(Ruborg::Repository).to receive(:repair).and_return("Repaired 3 segments")
+
+      expect do
+        described_class.start(["validate", "repo", "--config", config_file,
+                               "--repository", "test-repo", "--repair", "--yes"])
+      end.to output(/Repair completed/).to_stdout
+    end
+
+    it "surfaces BorgError from repair as a failure message" do
+      config_file = create_test_config(repair_config)
+      FileUtils.mkdir_p(repo_path)
+      repo_instance = Ruborg::Repository.new(repo_path)
+      repo_instance.create
+
+      allow_any_instance_of(Ruborg::Repository).to receive(:repair)
+        .and_raise(Ruborg::BorgError, "Borg repair failed: segment error")
+
+      expect do
+        described_class.start(["validate", "repo", "--config", config_file,
+                               "--repository", "test-repo", "--repair", "--yes"])
+      end.to output(/Validation failed/).to_stdout
+    end
+  end
+
   describe "lock command" do
     before do
       allow_any_instance_of(Ruborg::RuborgLogger).to receive(:info)
