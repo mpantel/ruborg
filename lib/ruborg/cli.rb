@@ -177,6 +177,9 @@ module Ruborg
     desc "validate TYPE", "Validate configuration file or repository (TYPE: config or repo)"
     option :verify_data, type: :boolean, default: false, desc: "Verify repository data (slower, only for 'repo' type)"
     option :all, type: :boolean, default: false, desc: "Validate all repositories (only for 'repo' type)"
+    option :repair, type: :boolean, default: false,
+                    desc: "Repair corruption via borg check --repair (only for 'repo', requires --yes)"
+    option :yes, type: :boolean, default: false, desc: "Confirm destructive repair operation (required with --repair)"
     def validate(type)
       case type
       when "config"
@@ -333,6 +336,19 @@ module Ruborg
         repo.check
         puts "  ✓ Integrity check passed"
         @logger.info("Integrity check passed for #{repo_name}")
+      end
+
+      # Run repair if requested
+      if options[:repair]
+        raise ConfigError, "Repair mode requires --yes to acknowledge potential data loss" unless options[:yes]
+
+        puts "  Running repair (borg check --repair)..."
+        puts "  ⚠ WARNING: repair may delete corrupted archives"
+        @logger.warn("Starting repair on #{repo_name} — data loss possible if archives are corrupted")
+        output = repo.repair
+        puts "  ✓ Repair completed"
+        output.split("\n").each { |line| puts "    #{line}" } unless output.empty?
+        @logger.info("Repair completed for #{repo_name}:\n#{output}")
       end
 
       puts ""
